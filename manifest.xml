@@ -21,7 +21,7 @@
   <SupportUrl DefaultValue="https://shop-star.github.io/falcon-outlook-addin" />
 
   <AppDomains>
-    <AppDomain>https://shop-star.github.io/falcon-outlook-addin</AppDomain>
+    <AppDomain>https://shop-star.github.io</AppDomain>
   </AppDomains>
 
   <Hosts>
