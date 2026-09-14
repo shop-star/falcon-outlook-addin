@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <title>Floor Area Takeoff</title>
+
+  <!-- Required Office.js library -->
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+
+  <link rel="stylesheet" href="taskpane.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>Floor Area Takeoff</h1>
+    <p class="subtitle">Pick a PDF plan attached to this email, set the scale, then trace each room.</p>
+  </header>
+
+  <section id="attachmentSection" class="panel">
+    <h2>1. Choose a plan</h2>
+    <div id="attachmentList" class="attachment-list">
+      <p class="muted">Looking for PDF attachments on this email…</p>
+    </div>
+  </section>
+
+  <section id="statusBar" class="status-bar" role="status" aria-live="polite"></section>
+
+  <section id="viewerSection" class="panel" hidden>
+    <h2>2. Set scale, then trace rooms</h2>
+
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <button id="prevPageBtn" title="Previous page">◀</button>
+        <span id="pageIndicator">Page 1 / 1</span>
+        <button id="nextPageBtn" title="Next page">▶</button>
+      </div>
+      <div class="toolbar-group">
+        <button id="zoomOutBtn" title="Zoom out">−</button>
+        <span id="zoomIndicator">150%</span>
+        <button id="zoomInBtn" title="Zoom in">+</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button id="setScaleBtn" class="primary">Set scale</button>
+      <button id="traceRoomBtn" disabled>Trace room</button>
+      <button id="undoPointBtn" hidden>Undo point</button>
+      <button id="finishRoomBtn" hidden disabled>Finish room</button>
+      <button id="cancelActionBtn" hidden>Cancel</button>
+    </div>
+
+    <div id="canvasScroller" class="canvas-scroller">
+      <div id="canvasStack" class="canvas-stack">
+        <canvas id="pdfCanvas"></canvas>
+        <canvas id="overlayCanvas"></canvas>
+      </div>
+    </div>
+
+    <!-- Inline calibration form (never uses window.prompt — some Office hosts block it) -->
+    <div id="calibrationForm" class="inline-form" hidden>
+      <label>
+        Real-world length of the line you just drew:
+        <div class="inline-form-row">
+          <input id="calibLengthInput" type="number" min="0" step="any" placeholder="e.g. 3600" />
+          <select id="calibUnitSelect">
+            <option value="mm">mm</option>
+            <option value="cm">cm</option>
+            <option value="m">m</option>
+            <option value="ft">ft</option>
+            <option value="in">in</option>
+          </select>
+        </div>
+      </label>
+      <div class="inline-form-actions">
+        <button id="calibConfirmBtn" class="primary">Set scale</button>
+        <button id="calibCancelBtn">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Inline room-naming form -->
+    <div id="roomNameForm" class="inline-form" hidden>
+      <label>
+        Room name:
+        <input id="roomNameInput" type="text" placeholder="e.g. Living room" />
+      </label>
+      <div class="inline-form-actions">
+        <button id="roomNameConfirmBtn" class="primary">Add room</button>
+        <button id="roomNameCancelBtn">Cancel</button>
+      </div>
+    </div>
+
+    <div id="scaleInfo" class="scale-info" hidden></div>
+  </section>
+
+  <section id="resultsSection" class="panel" hidden>
+    <h2>3. Floor areas</h2>
+    <table id="resultsTable" class="results-table">
+      <thead>
+        <tr>
+          <th>Room</th>
+          <th>Page</th>
+          <th>m²</th>
+          <th>ft²</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="resultsBody"></tbody>
+      <tfoot>
+        <tr>
+          <td><strong>Total</strong></td>
+          <td></td>
+          <td id="totalM2"><strong>0.00</strong></td>
+          <td id="totalFt2"><strong>0.00</strong></td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="results-actions">
+      <button id="copyResultsBtn">Copy results</button>
+      <button id="clearAllBtn">Clear all</button>
+    </div>
+    <textarea id="copyFallback" class="copy-fallback" hidden></textarea>
+  </section>
+
+  <script type="module" src="taskpane.js"></script>
+</body>
+</html>

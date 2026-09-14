@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp
+    xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+    xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0"
+    xsi:type="MailApp">
+
+  <!-- Unique identifier for this add-in. Do not change once you have sideloaded it,
+       or Outlook will treat a later version as a brand new add-in. -->
+  <Id>02e134bf-61e6-4889-b5f8-e8c87fc3ffd8</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>City Timber</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Floor Area Takeoff" />
+  <Description DefaultValue="Trace room outlines on a PDF plan attachment and get floor areas by room." />
+
+  <!--
+    IMPORTANT: replace every occurrence of REPLACE-WITH-YOUR-BASE-URL below with the
+    HTTPS URL where you host this add-in's files (no trailing slash), e.g.:
+      https://yourusername.github.io/floor-area-addin
+  -->
+  <IconUrl DefaultValue="REPLACE-WITH-YOUR-BASE-URL/assets/icon-32.png" />
+  <HighResIconUrl DefaultValue="REPLACE-WITH-YOUR-BASE-URL/assets/icon-80.png" />
+  <SupportUrl DefaultValue="REPLACE-WITH-YOUR-BASE-URL" />
+
+  <AppDomains>
+    <AppDomain>REPLACE-WITH-YOUR-BASE-URL</AppDomain>
+  </AppDomains>
+
+  <Hosts>
+    <Host Name="Mailbox" />
+  </Hosts>
+
+  <Requirements>
+    <Sets>
+      <Set Name="Mailbox" MinVersion="1.8" />
+    </Sets>
+  </Requirements>
+
+  <FormSettings>
+    <Form xsi:type="ItemRead">
+      <DesktopSettings>
+        <SourceLocation DefaultValue="REPLACE-WITH-YOUR-BASE-URL/taskpane.html" />
+      </DesktopSettings>
+    </Form>
+  </FormSettings>
+
+  <Permissions>ReadWriteItem</Permissions>
+
+  <Rule xsi:type="RuleCollection" Mode="Or">
+    <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read" />
+  </Rule>
+
+  <DisableEntityHighlighting>false</DisableEntityHighlighting>
+
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Requirements>
+      <bt:Sets DefaultMinVersion="1.8">
+        <bt:Set Name="Mailbox" />
+      </bt:Sets>
+    </Requirements>
+    <Hosts>
+      <Host xsi:type="MailHost">
+        <DesktopFormFactor>
+          <FunctionFile resid="Commands.Url" />
+
+          <ExtensionPoint xsi:type="MessageReadCommandSurface">
+            <OfficeTab id="TabDefault">
+              <Group id="FloorAreaGroup">
+                <Label resid="GroupLabel" />
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16x16" />
+                  <bt:Image size="32" resid="Icon.32x32" />
+                  <bt:Image size="80" resid="Icon.80x80" />
+                </Icon>
+                <Control xsi:type="Button" id="FloorAreaButton">
+                  <Label resid="ButtonLabel" />
+                  <Supertip>
+                    <Title resid="ButtonLabel" />
+                    <Description resid="ButtonTooltip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16x16" />
+                    <bt:Image size="32" resid="Icon.32x32" />
+                    <bt:Image size="80" resid="Icon.80x80" />
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <SourceLocation resid="Taskpane.Url" />
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Icon.16x16" DefaultValue="REPLACE-WITH-YOUR-BASE-URL/assets/icon-16.png" />
+        <bt:Image id="Icon.32x32" DefaultValue="REPLACE-WITH-YOUR-BASE-URL/assets/icon-32.png" />
+        <bt:Image id="Icon.80x80" DefaultValue="REPLACE-WITH-YOUR-BASE-URL/assets/icon-80.png" />
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="Commands.Url" DefaultValue="REPLACE-WITH-YOUR-BASE-URL/taskpane.html" />
+        <bt:Url id="Taskpane.Url" DefaultValue="REPLACE-WITH-YOUR-BASE-URL/taskpane.html" />
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="GroupLabel" DefaultValue="Floor Areas" />
+        <bt:String id="ButtonLabel" DefaultValue="Floor Areas" />
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="ButtonTooltip" DefaultValue="Open a PDF plan attachment and trace rooms to get floor areas." />
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>
