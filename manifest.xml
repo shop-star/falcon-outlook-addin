@@ -15,17 +15,13 @@
   <DisplayName DefaultValue="Floor Area Takeoff" />
   <Description DefaultValue="Trace room outlines on a PDF plan attachment and get floor areas by room." />
 
-  <!--
-    IMPORTANT: replace every occurrence of REPLACE-WITH-YOUR-BASE-URL below with the
-    HTTPS URL where you host this add-in's files (no trailing slash), e.g.:
-      https://yourusername.github.io/floor-area-addin
-  -->
-  <IconUrl DefaultValue="REPLACE-WITH-YOUR-BASE-URL/assets/icon-32.png" />
-  <HighResIconUrl DefaultValue="REPLACE-WITH-YOUR-BASE-URL/assets/icon-80.png" />
-  <SupportUrl DefaultValue="REPLACE-WITH-YOUR-BASE-URL" />
+  <!-- Hosted via GitHub Pages at https://shop-star.github.io/falcon-outlook-addin -->
+  <IconUrl DefaultValue="https://shop-star.github.io/falcon-outlook-addin/assets/icon-32.png" />
+  <HighResIconUrl DefaultValue="https://shop-star.github.io/falcon-outlook-addin/assets/icon-80.png" />
+  <SupportUrl DefaultValue="https://shop-star.github.io/falcon-outlook-addin" />
 
   <AppDomains>
-    <AppDomain>REPLACE-WITH-YOUR-BASE-URL</AppDomain>
+    <AppDomain>https://shop-star.github.io/falcon-outlook-addin</AppDomain>
   </AppDomains>
 
   <Hosts>
@@ -41,7 +37,7 @@
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="REPLACE-WITH-YOUR-BASE-URL/taskpane.html" />
+        <SourceLocation DefaultValue="https://shop-star.github.io/falcon-outlook-addin/taskpane.html" />
       </DesktopSettings>
     </Form>
   </FormSettings>
@@ -98,13 +94,13 @@
 
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16x16" DefaultValue="REPLACE-WITH-YOUR-BASE-URL/assets/icon-16.png" />
-        <bt:Image id="Icon.32x32" DefaultValue="REPLACE-WITH-YOUR-BASE-URL/assets/icon-32.png" />
-        <bt:Image id="Icon.80x80" DefaultValue="REPLACE-WITH-YOUR-BASE-URL/assets/icon-80.png" />
+        <bt:Image id="Icon.16x16" DefaultValue="https://shop-star.github.io/falcon-outlook-addin/assets/icon-16.png" />
+        <bt:Image id="Icon.32x32" DefaultValue="https://shop-star.github.io/falcon-outlook-addin/assets/icon-32.png" />
+        <bt:Image id="Icon.80x80" DefaultValue="https://shop-star.github.io/falcon-outlook-addin/assets/icon-80.png" />
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="Commands.Url" DefaultValue="REPLACE-WITH-YOUR-BASE-URL/taskpane.html" />
-        <bt:Url id="Taskpane.Url" DefaultValue="REPLACE-WITH-YOUR-BASE-URL/taskpane.html" />
+        <bt:Url id="Commands.Url" DefaultValue="https://shop-star.github.io/falcon-outlook-addin/taskpane.html" />
+        <bt:Url id="Taskpane.Url" DefaultValue="https://shop-star.github.io/falcon-outlook-addin/taskpane.html" />
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="GroupLabel" DefaultValue="Floor Areas" />
