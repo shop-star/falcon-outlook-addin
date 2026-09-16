@@ -9,11 +9,11 @@
   <!-- Unique identifier for this add-in. Do not change once you have sideloaded it,
        or Outlook will treat a later version as a brand new add-in. -->
   <Id>02e134bf-61e6-4889-b5f8-e8c87fc3ffd8</Id>
-  <Version>1.0.0.0</Version>
+  <Version>2.0.0.0</Version>
   <ProviderName>City Timber</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Floor Area Takeoff" />
-  <Description DefaultValue="Trace room outlines on a PDF plan attachment and get floor areas by room." />
+  <Description DefaultValue="Opens the Floor Area Takeoff web app with this email's plan attachments and links ready to go." />
 
   <!-- Hosted via GitHub Pages at https://shop-star.github.io/falcon-outlook-addin -->
   <IconUrl DefaultValue="https://shop-star.github.io/falcon-outlook-addin/assets/icon-32.png" />
@@ -34,10 +34,15 @@
     </Sets>
   </Requirements>
 
+  <!-- No task pane anymore — the ribbon button runs a function (see
+       VersionOverrides below) that opens the standalone app in a real
+       browser window. This block is a schema-required legacy fallback for
+       very old clients without VersionOverrides support; it has no button
+       of its own to reach in practice. -->
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://shop-star.github.io/falcon-outlook-addin/taskpane.html" />
+        <SourceLocation DefaultValue="https://shop-star.github.io/falcon-outlook-addin/commands.html" />
         <RequestedHeight>250</RequestedHeight>
       </DesktopSettings>
     </Form>
@@ -77,8 +82,8 @@
                     <bt:Image size="32" resid="Icon.32x32" />
                     <bt:Image size="80" resid="Icon.80x80" />
                   </Icon>
-                  <Action xsi:type="ShowTaskpane">
-                    <SourceLocation resid="Taskpane.Url" />
+                  <Action xsi:type="ExecuteFunction">
+                    <FunctionName>openFloorAreaApp</FunctionName>
                   </Action>
                 </Control>
               </Group>
@@ -95,15 +100,14 @@
         <bt:Image id="Icon.80x80" DefaultValue="https://shop-star.github.io/falcon-outlook-addin/assets/icon-80.png" />
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="Commands.Url" DefaultValue="https://shop-star.github.io/falcon-outlook-addin/taskpane.html" />
-        <bt:Url id="Taskpane.Url" DefaultValue="https://shop-star.github.io/falcon-outlook-addin/taskpane.html" />
+        <bt:Url id="Commands.Url" DefaultValue="https://shop-star.github.io/falcon-outlook-addin/commands.html" />
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="GroupLabel" DefaultValue="Floor Areas" />
         <bt:String id="ButtonLabel" DefaultValue="Floor Areas" />
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="ButtonTooltip" DefaultValue="Open a PDF plan attachment and trace rooms to get floor areas." />
+        <bt:String id="ButtonTooltip" DefaultValue="Open the Floor Area Takeoff app with this email's plan attachments and links ready to go." />
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

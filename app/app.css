@@ -1,0 +1,180 @@
+:root {
+  --brand: #15655c;
+  --brand-dark: #0e453e;
+  --border: #d6dde0;
+  --bg-muted: #f4f6f6;
+  --text-muted: #667;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  font-size: 14px;
+  color: #202020;
+  margin: 0;
+  padding: 16px;
+  background: #fff;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+h1 { font-size: 20px; margin: 0 0 2px; }
+h2 { font-size: 14px; margin: 0 0 8px; color: var(--brand-dark); }
+.app-header { margin-bottom: 12px; }
+.subtitle { margin: 0; color: var(--text-muted); font-size: 13px; }
+
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px;
+  margin-bottom: 14px;
+  background: #fff;
+}
+
+.muted { color: var(--text-muted); font-size: 13px; }
+
+button, a.btn {
+  font-size: 13px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+a.btn { display: inline-block; text-decoration: none; color: inherit; }
+button:hover:not(:disabled), a.btn:hover { background: var(--bg-muted); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary, a.btn.primary {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--brand-dark); }
+
+.status-bar {
+  min-height: 18px;
+  font-size: 13px;
+  color: var(--brand-dark);
+  padding: 0 2px;
+  margin-bottom: 10px;
+}
+
+/* ---- From-email panel ---- */
+#fromEmailAttachments ul, #fromEmailLinks ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+#fromEmailAttachments li, #fromEmailLinks li { margin-bottom: 2px; word-break: break-all; }
+#fromEmailLinks a { color: var(--brand); }
+
+/* ---- File intake ---- */
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 6px;
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+.drop-zone.drag-over {
+  border-color: var(--brand);
+  background: var(--bg-muted);
+  color: var(--brand-dark);
+}
+.drop-zone p { margin: 0 0 10px; }
+
+.zip-picker { margin-top: 12px; }
+.zip-picker-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.zip-picker-list button { text-align: left; }
+
+/* ---- Viewer ---- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#pageIndicator, #zoomIndicator { font-size: 13px; color: var(--text-muted); min-width: 64px; text-align: center; }
+
+.canvas-scroller {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  height: 60vh;
+  min-height: 320px;
+  overflow: auto;
+  background: #eee;
+}
+.canvas-stack {
+  position: relative;
+  display: inline-block;
+}
+#pdfCanvas, #overlayCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+}
+#overlayCanvas { cursor: crosshair; }
+
+.inline-form {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--brand);
+  border-radius: 4px;
+  background: #eef7f5;
+}
+.inline-form label { display: block; font-size: 13px; margin-bottom: 6px; }
+.inline-form-row { display: flex; gap: 8px; margin-top: 4px; max-width: 320px; }
+.inline-form input[type="number"],
+.inline-form input[type="text"] {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+}
+.inline-form select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+}
+.inline-form-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+.scale-info {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ---- Results ---- */
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.results-table th, .results-table td {
+  text-align: left;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.results-table tfoot td { border-top: 2px solid var(--brand); border-bottom: none; }
+.results-table .del-btn { padding: 2px 6px; }
+
+.results-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.copy-fallback { width: 100%; height: 60px; margin-top: 8px; font-size: 12px; }
+
+@media (max-width: 480px) {
+  body { padding: 12px; }
+  .canvas-scroller { height: 50vh; }
+}

@@ -1,41 +1,76 @@
-/* Floor Area Takeoff — plan viewer dialog
- * Opened by taskpane.js via Office.context.ui.displayDialogAsync so the PDF
- * has a full window to work with instead of the cramped task pane. The task
- * pane sends the PDF's base64 content over in chunks (see the message
- * protocol below); this window renders it, handles scale calibration and
- * room tracing, and reports the current room list back to the task pane
- * after every change so its results table stays in sync live.
+/* Floor Area Takeoff — standalone browser app
+ * Replaces the old Outlook task pane + pop-up dialog pair with a single
+ * ordinary page: no Office.js, no embedded WebView, no cross-window
+ * messaging. A real browser tab handles file downloads and drag-and-drop
+ * natively, which is the whole reason this exists (see README) — the
+ * Outlook add-in's embedded dialog WebView never reliably supported either.
+ *
+ * Ingestion is a plain PDF or ZIP file, picked or dragged in. A companion
+ * Outlook add-in (see manifest.xml) can open this page pre-filled with the
+ * open email's subject, attachment names, and any links found in its body,
+ * via ?subject=&attachment=&link= query params — see initFromEmailPanel.
  */
 
-// Same self-hosted, older pdf.js build as previously used successfully in
-// the task pane (see taskpane.js for why: newer releases, even their
-// "legacy" compatibility builds, hit JS-engine incompatibilities in
-// Outlook for Mac's embedded WebKit).
+// ---- Lazy-loaded, self-hosted libraries ------------------------------------
+// Same reasoning throughout: self-hosted rather than pulled from a public
+// CDN, since some corporate networks block CDN domains; loaded on demand
+// rather than eagerly, since most sessions only ever need pdf.js.
+function loadScript(src, globalName) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.onload = () => {
+      if (!window[globalName]) {
+        reject(new Error(`${src} loaded but window.${globalName} was not set`));
+        return;
+      }
+      resolve(window[globalName]);
+    };
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
 let pdfjsLib = null;
 let pdfjsLoadPromise = null;
-
 function loadPdfJs() {
   if (!pdfjsLoadPromise) {
-    pdfjsLoadPromise = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "./vendor/pdfjs/pdf.min.js?v=__CACHEBUST__";
-      script.onload = () => {
-        if (!window.pdfjsLib) {
-          reject(new Error("pdf.min.js loaded but window.pdfjsLib was not set"));
-          return;
-        }
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.js?v=__CACHEBUST__";
-        pdfjsLib = window.pdfjsLib;
-        resolve(pdfjsLib);
-      };
-      script.onerror = () => reject(new Error("Failed to load pdf.min.js"));
-      document.head.appendChild(script);
-    }).catch((err) => {
-      pdfjsLoadPromise = null;
+    pdfjsLoadPromise = loadScript("../vendor/pdfjs/pdf.min.js?v=__CACHEBUST__", "pdfjsLib")
+      .then((lib) => {
+        lib.GlobalWorkerOptions.workerSrc = "../vendor/pdfjs/pdf.worker.min.js?v=__CACHEBUST__";
+        pdfjsLib = lib;
+        return lib;
+      })
+      .catch((err) => {
+        pdfjsLoadPromise = null;
+        throw err;
+      });
+  }
+  return pdfjsLoadPromise;
+}
+
+let pdfLibLoadPromise = null;
+function loadPdfLib() {
+  if (!pdfLibLoadPromise) {
+    pdfLibLoadPromise = loadScript("../vendor/pdf-lib/pdf-lib.min.js?v=__CACHEBUST__", "PDFLib").catch(
+      (err) => {
+        pdfLibLoadPromise = null;
+        throw err;
+      }
+    );
+  }
+  return pdfLibLoadPromise;
+}
+
+let jsZipLoadPromise = null;
+function loadJSZip() {
+  if (!jsZipLoadPromise) {
+    jsZipLoadPromise = loadScript("../vendor/jszip/jszip.min.js?v=__CACHEBUST__", "JSZip").catch((err) => {
+      jsZipLoadPromise = null;
       throw err;
     });
   }
-  return pdfjsLoadPromise;
+  return jsZipLoadPromise;
 }
 
 const UNIT_TO_M = { mm: 0.001, cm: 0.01, m: 1, ft: 0.3048, in: 0.0254 };
@@ -44,11 +79,16 @@ const UNIT_TO_M = { mm: 0.001, cm: 0.01, m: 1, ft: 0.3048, in: 0.0254 };
 let currentPdf = null;
 let currentPageNum = 1;
 let renderScale = 1.5;
+let currentFileName = null;
+// Kept separately from whatever pdf.js does with its own copy of the bytes
+// (getDocument() can transfer/detach the buffer it's given) so the download
+// button always has a pristine, untouched original to build from.
+let originalBytes = null;
 
 /** pageGeometry[pageNum] = { calibration: {p1,p2,metersPerUnit,label} | null, rooms: [{id,name,points}] } */
 let pageGeometry = {};
 
-/** flat list mirrored to the task pane's results table */
+/** flat list mirrored to the results table */
 let rooms = []; // { id, page, name, areaM2 }
 let nextRoomId = 1;
 
@@ -62,17 +102,19 @@ let traceTemp = { page: null, points: [] };
 let editingRoom = null; // room id, or null
 let vertexDragState = null; // { roomId, pointIndex, dragged }
 
-// ---- Incoming PDF data (chunked from the task pane) -----------------------
-let incomingChunks = null; // { fileName, total, parts: [] }
-
-// A restoreGeometry message (sent right after the last PDF chunk) can arrive
-// before openPdfFromBase64's async PDF decode has finished setting up fresh
-// state — stash it and apply once currentPdf is actually ready.
-let pendingRestoreGeometry = null;
-
 // ---- DOM refs ----------------------------------------------------------
 const statusBarEl = document.getElementById("statusBar");
 const fileNameHeadingEl = document.getElementById("fileNameHeading");
+
+const intakeSectionEl = document.getElementById("intakeSection");
+const dropZone = document.getElementById("dropZone");
+const pickFileBtn = document.getElementById("pickFileBtn");
+const fileInput = document.getElementById("fileInput");
+const zipPicker = document.getElementById("zipPicker");
+const zipPickerList = document.getElementById("zipPickerList");
+
+const viewerSectionEl = document.getElementById("viewerSection");
+const resultsSectionEl = document.getElementById("resultsSection");
 
 const canvasScroller = document.getElementById("canvasScroller");
 const pdfCanvas = document.getElementById("pdfCanvas");
@@ -105,7 +147,18 @@ const roomNameConfirmBtn = document.getElementById("roomNameConfirmBtn");
 const roomNameCancelBtn = document.getElementById("roomNameCancelBtn");
 
 const scaleInfoEl = document.getElementById("scaleInfo");
-const doneBtn = document.getElementById("doneBtn");
+
+const resultsBody = document.getElementById("resultsBody");
+const totalM2El = document.getElementById("totalM2");
+const copyResultsBtn = document.getElementById("copyResultsBtn");
+const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+const clearAllBtn = document.getElementById("clearAllBtn");
+const copyFallback = document.getElementById("copyFallback");
+
+const fromEmailPanel = document.getElementById("fromEmailPanel");
+const fromEmailSubjectEl = document.getElementById("fromEmailSubject");
+const fromEmailAttachmentsEl = document.getElementById("fromEmailAttachments");
+const fromEmailLinksEl = document.getElementById("fromEmailLinks");
 
 function setStatus(msg, isError) {
   statusBarEl.textContent = msg || "";
@@ -119,13 +172,6 @@ function describeError(err) {
   return `${name}: ${message}`;
 }
 
-// Fast wheel-zooming can still occasionally race two pdf.js render() calls
-// on the same canvas despite cancelling the previous task (cancellation
-// isn't immediate) — harmless in practice, the next render just takes
-// over, but the resulting error was still escaping as an unhandled
-// rejection here (not through renderPage's own, more targeted handling)
-// and showing a scary-looking message for something that isn't actually
-// a problem. Filtered out rather than chasing the underlying race further.
 function isBenignRenderRace(text) {
   return typeof text === "string" && text.includes("Cannot use the same canvas");
 }
@@ -134,7 +180,6 @@ window.addEventListener("error", (evt) => {
   const message = evt.message || String(evt.error);
   if (isBenignRenderRace(message)) return;
   setStatus("Something went wrong: " + message, true);
-  notifyParentError(message);
 });
 window.addEventListener("unhandledrejection", (evt) => {
   const reason = evt.reason && evt.reason.message ? evt.reason.message : evt.reason;
@@ -143,130 +188,214 @@ window.addEventListener("unhandledrejection", (evt) => {
     return;
   }
   setStatus("Something went wrong: " + reason, true);
-  notifyParentError(String(reason));
 });
 
-function notifyParentError(message) {
-  try {
-    Office.context.ui.messageParent(JSON.stringify({ type: "error", message }));
-  } catch (e) {
-    // If we can't even message the parent, there's nothing more to do.
+// ---- "From your email" panel, filled in by the launcher add-in ------------
+// Everything here comes from an email someone else could have sent, so it's
+// rendered as text (never innerHTML with the raw value) and link hrefs are
+// restricted to http(s) — a crafted "link" query param is not a good enough
+// reason to let a javascript: URI onto a real, clickable anchor.
+function initFromEmailPanel() {
+  const params = new URLSearchParams(window.location.search);
+  const subject = params.get("subject");
+  const attachments = params.getAll("attachment").filter(Boolean);
+  const links = params.getAll("link").filter((u) => /^https?:\/\//i.test(u));
+
+  if (!subject && attachments.length === 0 && links.length === 0) return;
+  fromEmailPanel.hidden = false;
+
+  if (subject) {
+    fromEmailSubjectEl.textContent = `Subject: ${subject}`;
+    fromEmailSubjectEl.hidden = false;
+  }
+
+  if (attachments.length > 0) {
+    const intro = document.createElement("p");
+    intro.className = "muted";
+    intro.textContent = "Attachments on that email — save them from Outlook, then drop them below:";
+    const ul = document.createElement("ul");
+    attachments.forEach((name) => {
+      const li = document.createElement("li");
+      li.textContent = name;
+      ul.appendChild(li);
+    });
+    fromEmailAttachmentsEl.append(intro, ul);
+  }
+
+  if (links.length > 0) {
+    const intro = document.createElement("p");
+    intro.className = "muted";
+    intro.textContent = "Links found in that email:";
+    const ul = document.createElement("ul");
+    links.forEach((url) => {
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = url;
+      li.appendChild(a);
+      ul.appendChild(li);
+    });
+    fromEmailLinksEl.append(intro, ul);
+  }
+}
+initFromEmailPanel();
+
+// ---- 1. File intake: drag-and-drop, file picker, and zip extraction -------
+["dragenter", "dragover"].forEach((evtName) =>
+  dropZone.addEventListener(evtName, (evt) => {
+    evt.preventDefault();
+    dropZone.classList.add("drag-over");
+  })
+);
+["dragleave", "drop"].forEach((evtName) =>
+  dropZone.addEventListener(evtName, (evt) => {
+    evt.preventDefault();
+    dropZone.classList.remove("drag-over");
+  })
+);
+dropZone.addEventListener("drop", (evt) => {
+  const file = evt.dataTransfer.files && evt.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+pickFileBtn.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files && fileInput.files[0];
+  if (file) handleFile(file);
+  fileInput.value = "";
+});
+
+function handleFile(file) {
+  const name = (file.name || "").toLowerCase();
+  zipPicker.hidden = true;
+  if (name.endsWith(".zip") || file.type === "application/zip") {
+    handleZipFile(file);
+  } else if (name.endsWith(".pdf") || file.type === "application/pdf") {
+    file
+      .arrayBuffer()
+      .then((buf) => openPdfFromBytes(file.name, new Uint8Array(buf)))
+      .catch((e) => setStatus(`Couldn't read "${file.name}" — ` + describeError(e), true));
+  } else {
+    setStatus(`"${file.name}" doesn't look like a PDF or a ZIP file.`, true);
   }
 }
 
-// Sends the flat room list (for the task pane's results table) together
-// with the full per-page geometry (calibration + traced polygon points) —
-// the task pane persists the geometry so scale/traces survive closing and
-// reopening this window, and saves it on the email itself so they survive
-// closing the task pane entirely.
-function notifyParentState() {
-  Office.context.ui.messageParent(
-    JSON.stringify({ type: "state", rooms, geometry: pageGeometry, nextRoomId })
+function handleZipFile(file) {
+  setStatus(`Reading "${file.name}"…`);
+  loadJSZip()
+    .then((JSZipLib) => file.arrayBuffer().then((buf) => JSZipLib.loadAsync(buf)))
+    .then(
+      (zip) => {
+        const pdfEntries = Object.values(zip.files).filter(
+          (f) => !f.dir && /\.pdf$/i.test(f.name)
+        );
+        if (pdfEntries.length === 0) {
+          setStatus(`No PDF files found inside "${file.name}".`, true);
+          return;
+        }
+        if (pdfEntries.length === 1) {
+          loadZipEntry(pdfEntries[0]);
+          return;
+        }
+        showZipPicker(pdfEntries);
+      },
+      (err) => setStatus(`Couldn't read "${file.name}" as a zip — ` + describeError(err), true)
+    );
+}
+
+function loadZipEntry(entry) {
+  setStatus(`Extracting "${entry.name}"…`);
+  entry.async("uint8array").then(
+    (bytes) => openPdfFromBytes(entry.name.split("/").pop(), bytes),
+    (err) => setStatus(`Couldn't extract "${entry.name}" — ` + describeError(err), true)
   );
 }
 
-// ---- Office.js bootstrap / message handshake with the task pane -----------
-Office.onReady(() => {
-  Office.context.ui.addHandlerAsync(Office.EventType.DialogParentMessageReceived, onParentMessage);
-  // Tell the task pane we're ready to receive the PDF content.
-  Office.context.ui.messageParent(JSON.stringify({ type: "ready" }));
-});
-
-function onParentMessage(arg) {
-  let msg;
-  try {
-    msg = JSON.parse(arg.message);
-  } catch (e) {
-    return;
-  }
-
-  if (msg.type === "start") {
-    incomingChunks = {
-      fileName: msg.fileName,
-      total: msg.total,
-      totalLength: msg.totalLength,
-      parts: new Array(msg.total),
-      receivedCount: 0,
-    };
-    fileNameHeadingEl.textContent = msg.fileName || "Floor plan";
-    setStatus(`Loading "${msg.fileName}"…`);
-  } else if (msg.type === "chunk") {
-    if (!incomingChunks) return;
-    if (msg.data.length !== msg.len) {
-      const err = `Chunk ${msg.index} arrived corrupted (expected ${msg.len} characters, got ${msg.data.length}).`;
-      setStatus(err, true);
-      notifyParentError(err);
-      incomingChunks = null;
-      return;
-    }
-    let rawChunk;
-    try {
-      // Chunks arrive URL-encoded (see taskpane.js) specifically to keep
-      // base64's +, /, = characters off the wire, since a bare "+" turning
-      // into a space is a known length-preserving corruption mode.
-      rawChunk = decodeURIComponent(msg.data);
-    } catch (e) {
-      const err = `Chunk ${msg.index} arrived corrupted (couldn't decode: ${e.message}).`;
-      setStatus(err, true);
-      notifyParentError(err);
-      incomingChunks = null;
-      return;
-    }
-    // A plain `new Array(n)` is sparse until every index is explicitly
-    // assigned, and Array.prototype.every() silently SKIPS holes in a
-    // sparse array rather than visiting them — so checking completeness
-    // with parts.every(p => p !== undefined) would return true after just
-    // the first chunk (the only "real" element `.every()` could see),
-    // regardless of how many holes remained. An explicit counter avoids
-    // relying on sparse-array iteration semantics entirely.
-    if (incomingChunks.parts[msg.index] === undefined) {
-      incomingChunks.receivedCount += 1;
-    }
-    incomingChunks.parts[msg.index] = rawChunk;
-    Office.context.ui.messageParent(JSON.stringify({ type: "chunkAck", index: msg.index }));
-    setStatus(
-      `Loading "${incomingChunks.fileName}"… (${incomingChunks.receivedCount}/${incomingChunks.total} chunks)`
-    );
-    if (incomingChunks.receivedCount === incomingChunks.total) {
-      const receivedCount = incomingChunks.receivedCount;
-      const total = incomingChunks.total;
-      const nonEmptyParts = incomingChunks.parts.filter((p) => p !== undefined).length;
-      const base64Content = incomingChunks.parts.join("");
-      const fileName = incomingChunks.fileName;
-      const expectedLength = incomingChunks.totalLength;
-      incomingChunks = null;
-      if (base64Content.length !== expectedLength) {
-        const err =
-          `PDF data was corrupted in transit (expected ${expectedLength} characters, got ` +
-          `${base64Content.length}; receivedCount=${receivedCount}/${total}, ` +
-          `non-empty parts=${nonEmptyParts}/${total}, last chunk index=${msg.index}).`;
-        setStatus(err, true);
-        notifyParentError(err);
-        return;
-      }
-      openPdfFromBase64(fileName, base64Content);
-    }
-  } else if (msg.type === "removeRoom") {
-    removeRoom(msg.id);
-  } else if (msg.type === "clear") {
-    clearAll();
-  } else if (msg.type === "restoreGeometry") {
-    if (currentPdf) {
-      applyRestoredGeometry(msg.geometry, msg.nextRoomId);
-    } else {
-      // The PDF hasn't finished decoding yet (this message always arrives
-      // right after the last chunk, but openPdfFromBase64 resolves
-      // asynchronously) — apply it once it has.
-      pendingRestoreGeometry = { geometry: msg.geometry, nextRoomId: msg.nextRoomId };
-    }
-  }
+function showZipPicker(entries) {
+  zipPickerList.innerHTML = "";
+  entries.forEach((entry) => {
+    const btn = document.createElement("button");
+    btn.textContent = entry.name;
+    btn.addEventListener("click", () => {
+      zipPicker.hidden = true;
+      loadZipEntry(entry);
+    });
+    zipPickerList.appendChild(btn);
+  });
+  zipPicker.hidden = false;
+  setStatus("That zip has more than one PDF — pick which one to open.");
 }
 
-// Rebuilds this window's state from a geometry blob the task pane saved
-// from a previous time this same attachment was open (either earlier this
-// session, or restored from the email itself). The flat room list is
-// recomputed from the polygons rather than trusted as sent, so it can never
-// drift from what's actually drawn.
+// ---- 2. Opening a PDF -------------------------------------------------------
+function openPdfFromBytes(fileName, bytes) {
+  setStatus(`Loading "${fileName}"…`);
+  loadPdfJs().then(
+    () => {
+      // A copy for pdf.js — it can transfer/detach the buffer it's given,
+      // and `bytes` needs to stay pristine for the download button to embed
+      // later (see the doc comment on originalBytes above).
+      pdfjsLib.getDocument({ data: bytes.slice() }).promise.then(
+        (pdf) => {
+          originalBytes = bytes;
+          currentFileName = fileName;
+          currentPdf = pdf;
+          currentPageNum = 1;
+          pageGeometry = {};
+          rooms = [];
+          nextRoomId = 1;
+          renderScale = 1.5;
+          resetToolState();
+          setScaleBtn.disabled = false;
+          fileNameHeadingEl.textContent = `2. Set scale, then trace rooms — "${fileName}"`;
+          viewerSectionEl.hidden = false;
+          resultsSectionEl.hidden = false;
+          downloadPdfBtn.hidden = false;
+          renderPage();
+          updateResultsTable();
+          setStatus(`Loaded "${fileName}". Set the scale, then trace each room.`);
+          restorePreviousProgress(pdf, fileName, bytes.length);
+        },
+        (err) => setStatus(`Couldn't open "${fileName}" — ` + describeError(err), true)
+      );
+    },
+    (err) => setStatus("Couldn't load the PDF viewer library — " + describeError(err), true)
+  );
+}
+
+// Two sources of previously-saved progress, checked in order: this exact
+// file already opened once in this browser (autosaved to localStorage,
+// keyed by name+size — see saveAutosave), or the file itself is a
+// previously-downloaded round-trip copy with its own embedded scale/room
+// data (see buildAnnotatedPdfBytes). Either way, restoring means the flat
+// room list gets recomputed from the polygons rather than trusted as saved,
+// so it can never drift from what's actually drawn.
+function restorePreviousProgress(pdf, fileName, byteLength) {
+  const autosaved = loadAutosave(fileName, byteLength);
+  if (autosaved && autosaved.pageGeometry && Object.keys(autosaved.pageGeometry).length > 0) {
+    applyRestoredGeometry(autosaved.pageGeometry, autosaved.nextRoomId);
+    setStatus("Restored your previous scale and room traces for this plan.");
+    return;
+  }
+  pdf.getAttachments().then(
+    (attachments) => {
+      const embedded = attachments && attachments["floor-area-takeoff.json"];
+      if (!embedded || !embedded.content) return;
+      try {
+        const parsed = JSON.parse(new TextDecoder().decode(embedded.content));
+        if (parsed && parsed.pageGeometry && Object.keys(parsed.pageGeometry).length > 0) {
+          applyRestoredGeometry(parsed.pageGeometry, parsed.nextRoomId);
+          setStatus("Restored the scale and room traces embedded in this PDF.");
+        }
+      } catch (e) {
+        // Not our own embedded data, or corrupted — ignore, the PDF still
+        // opened normally either way.
+      }
+    },
+    () => {}
+  );
+}
+
 function applyRestoredGeometry(geometry, nextId) {
   pageGeometry = geometry || {};
   nextRoomId = nextId || 1;
@@ -285,61 +414,51 @@ function applyRestoredGeometry(geometry, nextId) {
     });
   });
   redrawOverlay();
-  notifyParentState();
-  if (rooms.length > 0 || Object.keys(pageGeometry).length > 0) {
-    setStatus("Restored your previous scale and room traces for this plan.");
+  updateResultsTable();
+}
+
+// ---- Per-file autosave (localStorage) --------------------------------------
+// A real browser tab keeps localStorage reliably, unlike the Outlook
+// add-in's cross-window messaging — this is just "save progress for this
+// exact file", keyed on name+size as a cheap fingerprint.
+function autosaveKey(fileName, byteLength) {
+  return `floorAreaTakeoff:${fileName}:${byteLength}`;
+}
+
+function loadAutosave(fileName, byteLength) {
+  try {
+    const raw = localStorage.getItem(autosaveKey(fileName, byteLength));
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
   }
 }
 
-function openPdfFromBase64(fileName, base64Content) {
-  loadPdfJs().then(
-    () => {
-      try {
-        const bytes = base64ToUint8Array(base64Content);
-        pdfjsLib.getDocument({ data: bytes }).promise.then(
-          (pdf) => {
-            currentPdf = pdf;
-            currentPageNum = 1;
-            pageGeometry = {};
-            rooms = [];
-            nextRoomId = 1;
-            renderScale = 1.5;
-            resetToolState();
-            setScaleBtn.disabled = false;
-            renderPage();
-            notifyParentState();
-            setStatus(`Loaded "${fileName}". Set the scale, then trace each room.`);
-            if (pendingRestoreGeometry) {
-              const restore = pendingRestoreGeometry;
-              pendingRestoreGeometry = null;
-              applyRestoredGeometry(restore.geometry, restore.nextRoomId);
-            }
-          },
-          (err) => {
-            setStatus("Couldn't open this PDF — " + describeError(err), true);
-            notifyParentError("Couldn't open this PDF — " + describeError(err));
-          }
-        );
-      } catch (e) {
-        setStatus("Couldn't decode this attachment as a PDF — " + describeError(e), true);
-        notifyParentError("Couldn't decode this attachment as a PDF — " + describeError(e));
-      }
-    },
-    (err) => {
-      setStatus("Couldn't load the PDF viewer library — " + describeError(err), true);
-      notifyParentError("Couldn't load the PDF viewer library — " + describeError(err));
+let autosaveTimer = null;
+function saveAutosave() {
+  if (!currentFileName || !originalBytes) return;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(
+        autosaveKey(currentFileName, originalBytes.length),
+        JSON.stringify({ pageGeometry, nextRoomId })
+      );
+    } catch (e) {
+      // Storage full or unavailable (private browsing etc.) — this session
+      // still works fine, it just won't be there next time.
     }
-  );
+  }, 500);
 }
 
-function base64ToUint8Array(base64) {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
-  return bytes;
+function clearAutosave() {
+  if (!currentFileName || !originalBytes) return;
+  try {
+    localStorage.removeItem(autosaveKey(currentFileName, originalBytes.length));
+  } catch (e) {
+    // Nothing more to do.
+  }
 }
-
 
 // ---- Rendering --------------------------------------------------------
 // A mouse-wheel zoom gesture fires many events in quick succession, each
@@ -375,19 +494,13 @@ function renderPage(onResized) {
       (err) => {
         currentRenderTask = null;
         if (err && err.name === "RenderingCancelledException") return;
-        // describeError(), not err.message directly: if pdf.js rejects with
-        // a plain string rather than an Error instance for this specific
-        // failure, err.message would be undefined and this filter would
-        // silently fail to match — describeError() already falls back to
-        // String(err) the same way the two global handlers do.
         if (isBenignRenderRace(describeError(err))) return;
         setStatus("Couldn't render this page — " + describeError(err), true);
-        notifyParentError("Couldn't render this page — " + describeError(err));
       }
     );
 
     pageIndicatorEl.textContent = `Page ${currentPageNum} / ${currentPdf.numPages}`;
-    zoomIndicatorEl.textContent = `${Math.round(renderScale / 1.5 * 100)}%`;
+    zoomIndicatorEl.textContent = `${Math.round((renderScale / 1.5) * 100)}%`;
     prevPageBtn.disabled = currentPageNum <= 1;
     nextPageBtn.disabled = currentPageNum >= currentPdf.numPages;
   });
@@ -413,8 +526,6 @@ function redrawOverlay() {
   }
   if (mode === "calibrate" && calibTemp.p1) {
     if (calibTemp.p2) {
-      // Both ends clicked — show the line while the length-entry form is
-      // open, not just after confirming, so you can see what you measured.
       drawLine(calibTemp.p1, calibTemp.p2, "#e07b00", 2, true);
     } else {
       drawPoint(calibTemp.p1, "#e07b00");
@@ -724,8 +835,7 @@ canvasScroller.addEventListener(
     const pdfY = (canvasScroller.scrollTop + offsetY) / renderScale;
 
     const oldScale = renderScale;
-    renderScale =
-      evt.deltaY < 0 ? Math.min(4, renderScale * 1.1) : Math.max(0.5, renderScale / 1.1);
+    renderScale = evt.deltaY < 0 ? Math.min(4, renderScale * 1.1) : Math.max(0.5, renderScale / 1.1);
     if (renderScale === oldScale) return;
 
     renderPage(() => {
@@ -790,6 +900,7 @@ calibConfirmBtn.addEventListener("click", () => {
   resetToolState();
   redrawOverlay();
   recalcAllAreasForPage(currentPageNum);
+  saveAutosave();
   setStatus("Scale set for this page. Click “Trace room” to start on the first room.");
 });
 
@@ -823,7 +934,8 @@ roomNameConfirmBtn.addEventListener("click", () => {
   roomNameForm.hidden = true;
   resetToolState();
   redrawOverlay();
-  notifyParentState();
+  updateResultsTable();
+  saveAutosave();
   setStatus(`Added "${name}" — ${areaM2.toFixed(2)} m². Trace another room, or move to the next page.`);
 });
 
@@ -842,7 +954,7 @@ function recalcAllAreasForPage(pageNum) {
     const flat = rooms.find((x) => x.id === r.id);
     if (flat) flat.areaM2 = areaM2;
   });
-  notifyParentState();
+  updateResultsTable();
 }
 
 // ---- Page nav / zoom -------------------------------------------------------
@@ -869,10 +981,41 @@ zoomOutBtn.addEventListener("click", () => {
   renderPage();
 });
 
-// ---- Room removal / clear-all, driven by the task pane's results table ----
-// The task pane owns the visible results list; it asks this window to
-// remove a room (or clear everything) so the traced outline disappears
-// from the overlay too, then this window reports the updated list back.
+// ---- 3. Results table ----------------------------------------------------
+function updateResultsTable() {
+  resultsBody.innerHTML = "";
+  let totalM2 = 0;
+  rooms.forEach((r) => {
+    totalM2 += r.areaM2;
+    const tr = document.createElement("tr");
+
+    const nameTd = document.createElement("td");
+    nameTd.textContent = r.name;
+
+    const pageTd = document.createElement("td");
+    pageTd.textContent = r.page;
+
+    const m2Td = document.createElement("td");
+    m2Td.textContent = r.areaM2.toFixed(2);
+
+    const delTd = document.createElement("td");
+    const delBtn = document.createElement("button");
+    delBtn.className = "del-btn";
+    delBtn.textContent = "✕";
+    delBtn.title = "Remove this room";
+    delBtn.addEventListener("click", () => removeRoom(r.id));
+    delTd.appendChild(delBtn);
+
+    tr.appendChild(nameTd);
+    tr.appendChild(pageTd);
+    tr.appendChild(m2Td);
+    tr.appendChild(delTd);
+    resultsBody.appendChild(tr);
+  });
+
+  totalM2El.innerHTML = `<strong>${totalM2.toFixed(2)}</strong>`;
+}
+
 function removeRoom(id) {
   rooms = rooms.filter((r) => r.id !== id);
   Object.values(pageGeometry).forEach((geo) => {
@@ -880,47 +1023,149 @@ function removeRoom(id) {
   });
   if (editingRoom === id) editingRoom = null;
   redrawOverlay();
-  notifyParentState();
+  updateResultsTable();
+  saveAutosave();
 }
 
-function clearAll() {
+copyResultsBtn.addEventListener("click", () => {
+  let text = "Room\tPage\tm²\n";
+  rooms.forEach((r) => {
+    text += `${r.name}\t${r.page}\t${r.areaM2.toFixed(2)}\n`;
+  });
+  const totalM2 = rooms.reduce((s, r) => s + r.areaM2, 0);
+  text += `Total\t\t${totalM2.toFixed(2)}\n`;
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => setStatus("Results copied — paste into your quote/spreadsheet."),
+      () => showCopyFallback(text)
+    );
+  } else {
+    showCopyFallback(text);
+  }
+});
+
+function showCopyFallback(text) {
+  copyFallback.hidden = false;
+  copyFallback.value = text;
+  copyFallback.focus();
+  copyFallback.select();
+  setStatus("Couldn't copy automatically — the text is selected below, press Ctrl/Cmd+C.");
+}
+
+clearAllBtn.addEventListener("click", () => {
   rooms = [];
   nextRoomId = 1;
   pageGeometry = {};
   resetToolState();
   redrawOverlay();
-  notifyParentState();
+  updateResultsTable();
+  clearAutosave();
   setStatus("Cleared all rooms and scale settings on every page.");
+});
+
+// ---- 4. Download PDF with room data embedded -------------------------------
+// Builds a modified copy of the original PDF — never the in-memory copy
+// pdf.js is using, since getDocument() can transfer/detach that buffer —
+// with two things added: the raw geometry as a JSON file attachment (so
+// re-opening this exact file restores the exact editable state, no account
+// or storage needed) and the traced outlines/labels drawn directly onto the
+// pages (so the measurements are visible in any ordinary PDF viewer).
+function suggestDownloadName(name) {
+  const base = (name || "floor-plan").replace(/\.pdf$/i, "");
+  return `${base}-with-rooms.pdf`;
 }
 
-// A dialog can't close itself: window.close() only works on windows opened
-// by script (window.open()) in the same page, and a dialog opened by the
-// host application isn't considered "script-opened" from its own point of
-// view, so the call silently no-ops. The documented pattern is to ask the
-// parent to close it — the task pane holds the real Dialog object (from
-// displayDialogAsync's callback), which has a working .close() method.
-function requestClose() {
-  Office.context.ui.messageParent(JSON.stringify({ type: "closeRequest" }));
+async function buildAnnotatedPdfBytes() {
+  const lib = await loadPdfLib();
+  const pdfDoc = await lib.PDFDocument.load(originalBytes.slice());
+
+  const geometryJson = JSON.stringify({ pageGeometry, nextRoomId }, null, 2);
+  await pdfDoc.attach(new TextEncoder().encode(geometryJson), "floor-area-takeoff.json", {
+    mimeType: "application/json",
+    description: "Floor Area Takeoff — scale calibration and traced room outlines",
+  });
+
+  const pdfLibPages = pdfDoc.getPages();
+  const font = await pdfDoc.embedFont(lib.StandardFonts.Helvetica);
+  const outlineColor = lib.rgb(0.08, 0.4, 0.36);
+
+  for (const pageNumKey of Object.keys(pageGeometry)) {
+    const pageNum = Number(pageNumKey);
+    const geo = pageGeometry[pageNum];
+    if (!geo.rooms || geo.rooms.length === 0) continue;
+    if (pageNum < 1 || pageNum > pdfLibPages.length) continue;
+
+    const pdfLibPage = pdfLibPages[pageNum - 1];
+    // Our traced points are stored in pdf.js's scale-1 viewport space (see
+    // canvasPointFromEvent) — convertToPdfPoint maps that back to the PDF's
+    // own coordinate space (bottom-left origin, and correctly accounting
+    // for page rotation), which is what pdf-lib's drawing calls expect.
+    const pdfjsPage = await currentPdf.getPage(pageNum);
+    const viewportAtScale1 = pdfjsPage.getViewport({ scale: 1 });
+
+    geo.rooms.forEach((room) => {
+      if (room.points.length < 3) return;
+      const pts = room.points.map((p) => {
+        const [x, y] = viewportAtScale1.convertToPdfPoint(p[0], p[1]);
+        return { x, y };
+      });
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % pts.length];
+        pdfLibPage.drawLine({ start: a, end: b, thickness: 1.5, color: outlineColor });
+      }
+      const cx = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
+      const cy = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
+      const flatRoom = rooms.find((r) => r.id === room.id);
+      const label = flatRoom ? `${room.name} — ${flatRoom.areaM2.toFixed(2)} m²` : room.name;
+      pdfLibPage.drawText(label, {
+        x: cx - label.length * 2.3,
+        y: cy,
+        size: 9,
+        font,
+        color: outlineColor,
+      });
+    });
+  }
+
+  return pdfDoc.save();
 }
 
-doneBtn.addEventListener("click", requestClose);
+// A real browser tab (unlike the Outlook add-in's embedded dialog WebView
+// this replaced) handles a Blob URL + a programmatically-clicked <a
+// download> perfectly normally, even after the async work below — this is
+// an ordinary, well-supported web pattern here, not the two-phase dance the
+// add-in needed.
+downloadPdfBtn.addEventListener("click", (evt) => {
+  evt.preventDefault();
+  if (!currentPdf || !originalBytes || downloadPdfBtn.dataset.busy === "1") return;
 
-// This pop-up staying on top of other applications when you switch away
-// is a documented macOS-specific limitation of the Office.js Dialog API
-// itself (tracked upstream in Microsoft's office-js repo) — there's no
-// parameter or workaround available from the add-in's own code to fix
-// the window layering directly. Auto-closing when the window loses focus
-// sidesteps it: once you switch to something else, the window gets out
-// of the way instead of floating above everything indefinitely.
-//
-// Both signals are wired up since this environment's WebKit build has
-// repeatedly turned out to support standard web APIs inconsistently
-// (missing globals, incorrect array iteration, etc. — see taskpane.js):
-// window "blur" alone didn't fire on switching applications, so the Page
-// Visibility API is added too, as a differently-implemented alternative
-// that some embedded webviews support more reliably than raw focus events
-// for OS-level app switching specifically.
-window.addEventListener("blur", requestClose);
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) requestClose();
+  const originalText = downloadPdfBtn.textContent;
+  downloadPdfBtn.dataset.busy = "1";
+  downloadPdfBtn.textContent = "Preparing…";
+  setStatus("Preparing PDF with room data…");
+
+  buildAnnotatedPdfBytes().then(
+    (bytes) => {
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const filename = suggestDownloadName(currentFileName);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      downloadPdfBtn.textContent = originalText;
+      downloadPdfBtn.dataset.busy = "";
+      setStatus(`Downloaded "${filename}".`);
+    },
+    (err) => {
+      downloadPdfBtn.textContent = originalText;
+      downloadPdfBtn.dataset.busy = "";
+      setStatus("Couldn't build the PDF download — " + describeError(err), true);
+    }
+  );
 });
