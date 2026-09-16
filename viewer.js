@@ -343,8 +343,14 @@ function redrawOverlay() {
   if (geo.calibration) {
     drawLine(geo.calibration.p1, geo.calibration.p2, "#e07b00", 2, true, geo.calibration.label);
   }
-  if (mode === "calibrate" && calibTemp.p1 && !calibTemp.p2) {
-    drawPoint(calibTemp.p1, "#e07b00");
+  if (mode === "calibrate" && calibTemp.p1) {
+    if (calibTemp.p2) {
+      // Both ends clicked — show the line while the length-entry form is
+      // open, not just after confirming, so you can see what you measured.
+      drawLine(calibTemp.p1, calibTemp.p2, "#e07b00", 2, true);
+    } else {
+      drawPoint(calibTemp.p1, "#e07b00");
+    }
   }
 
   geo.rooms.forEach((room) => drawPolygon(room.points, "#15655c", room.name));
