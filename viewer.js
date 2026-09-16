@@ -188,13 +188,22 @@ function onParentMessage(arg) {
     }
     incomingChunks.parts[msg.index] = rawChunk;
     Office.context.ui.messageParent(JSON.stringify({ type: "chunkAck", index: msg.index }));
+    setStatus(
+      `Loading "${incomingChunks.fileName}"… (${incomingChunks.receivedCount}/${incomingChunks.total} chunks)`
+    );
     if (incomingChunks.receivedCount === incomingChunks.total) {
+      const receivedCount = incomingChunks.receivedCount;
+      const total = incomingChunks.total;
+      const nonEmptyParts = incomingChunks.parts.filter((p) => p !== undefined).length;
       const base64Content = incomingChunks.parts.join("");
       const fileName = incomingChunks.fileName;
       const expectedLength = incomingChunks.totalLength;
       incomingChunks = null;
       if (base64Content.length !== expectedLength) {
-        const err = `PDF data was corrupted in transit (expected ${expectedLength} characters, got ${base64Content.length}).`;
+        const err =
+          `PDF data was corrupted in transit (expected ${expectedLength} characters, got ` +
+          `${base64Content.length}; receivedCount=${receivedCount}/${total}, ` +
+          `non-empty parts=${nonEmptyParts}/${total}, last chunk index=${msg.index}).`;
         setStatus(err, true);
         notifyParentError(err);
         return;
