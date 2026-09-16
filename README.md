@@ -110,7 +110,9 @@ Once added, open any email with a PDF plan attached and you'll see a
 4. Click **Trace room**, click around a room's outline corner by corner,
    then **Finish room** and give it a name. Repeat for each room (and each
    page, if the plan has multiple floors — you'll need to set the scale
-   once per page).
+   once per page). To fix up a room afterward, click its outline (when
+   you're not actively tracing or setting scale) to select it, then drag
+   its corner handles to reshape it — the area updates as you drag.
 5. Back in the task pane, read the running list and total in the
    **Floor areas** section (it updates live as you trace), and use
    **Copy results** to paste a tab-separated list into Excel or your quote.

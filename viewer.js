@@ -56,6 +56,12 @@ let mode = "idle"; // idle | calibrate | trace
 let calibTemp = { p1: null, p2: null };
 let traceTemp = { page: null, points: [] };
 
+// Clicking an already-traced room's outline while idle selects it for
+// editing — its corner points are drawn as draggable handles until you
+// click elsewhere (or start calibrating/tracing) to deselect.
+let editingRoom = null; // room id, or null
+let vertexDragState = null; // { roomId, pointIndex, dragged }
+
 // ---- Incoming PDF data (chunked from the task pane) -----------------------
 let incomingChunks = null; // { fileName, total, parts: [] }
 
@@ -265,6 +271,8 @@ function applyRestoredGeometry(geometry, nextId) {
   pageGeometry = geometry || {};
   nextRoomId = nextId || 1;
   rooms = [];
+  editingRoom = null;
+  vertexDragState = null;
   Object.keys(pageGeometry).forEach((pageNumKey) => {
     const pageNum = Number(pageNumKey);
     const geo = pageGeometry[pageNum];
@@ -412,7 +420,13 @@ function redrawOverlay() {
     }
   }
 
-  geo.rooms.forEach((room) => drawPolygon(room.points, "#15655c", room.name));
+  geo.rooms.forEach((room) => {
+    const isEditing = room.id === editingRoom;
+    drawPolygon(room.points, isEditing ? "#c2185b" : "#15655c", room.name);
+    if (isEditing) {
+      room.points.forEach((pt) => drawHandle(pt, "#c2185b"));
+    }
+  });
 
   if (mode === "trace" && traceTemp.page === currentPageNum && traceTemp.points.length > 0) {
     drawPolyline(traceTemp.points, "#c2185b");
@@ -436,6 +450,18 @@ function drawPoint(p, color) {
   overlayCtx.arc(cx, cy, 4, 0, Math.PI * 2);
   overlayCtx.fillStyle = color;
   overlayCtx.fill();
+}
+
+// A bigger, hollow square rather than drawPoint's filled dot — reads as a
+// "drag this" handle on a selected room's corners rather than just a marker.
+function drawHandle(p, color) {
+  const [cx, cy] = toCanvas(p);
+  const size = 9;
+  overlayCtx.fillStyle = "#ffffff";
+  overlayCtx.fillRect(cx - size / 2, cy - size / 2, size, size);
+  overlayCtx.strokeStyle = color;
+  overlayCtx.lineWidth = 2;
+  overlayCtx.strokeRect(cx - size / 2, cy - size / 2, size, size);
 }
 
 function drawLine(p1, p2, color, width, withMarkers, label) {
@@ -524,11 +550,39 @@ function canvasPointFromEvent(evt) {
   return [cx / renderScale, cy / renderScale];
 }
 
+// Ray-casting point-in-polygon test, used to pick which room a click landed
+// on (page-space coordinates on both sides).
+function pointInPolygon(p, points) {
+  let inside = false;
+  const [x, y] = p;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const [xi, yi] = points[i];
+    const [xj, yj] = points[j];
+    const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// A fixed on-screen hit radius (converted to page-space via renderScale) so
+// handles are just as easy to grab whether you're zoomed in or out.
+const VERTEX_HIT_RADIUS_PX = 10;
+
+function hitTestVertex(room, p) {
+  const thresholdPageUnits = VERTEX_HIT_RADIUS_PX / renderScale;
+  for (let i = 0; i < room.points.length; i++) {
+    if (distance(room.points[i], p) <= thresholdPageUnits) return i;
+  }
+  return -1;
+}
+
 // ---- Mode / tool state ----------------------------------------------------
 function resetToolState() {
   mode = "idle";
   calibTemp = { p1: null, p2: null };
   traceTemp = { page: null, points: [] };
+  editingRoom = null;
+  vertexDragState = null;
   calibrationForm.hidden = true;
   roomNameForm.hidden = true;
   undoPointBtn.hidden = true;
@@ -537,6 +591,19 @@ function resetToolState() {
 }
 
 overlayCanvas.addEventListener("click", (evt) => {
+  // A drag (panning the view, or dragging a room's vertex handle — both
+  // start on mousedown/mousemove on this same canvas) still ends with a
+  // "click" event on mouseup even though the pointer moved, because native
+  // click semantics don't care about distance travelled, only that
+  // mousedown/mouseup landed on the same element. Left unchecked, that
+  // turned every pan into an unwanted extra trace/calibration point. The
+  // mouseup handler below sets this flag whenever the gesture it just
+  // finished was actually a drag, so this one click event gets skipped.
+  if (suppressNextClick) {
+    suppressNextClick = false;
+    return;
+  }
+
   const p = canvasPointFromEvent(evt);
 
   if (mode === "calibrate") {
@@ -558,19 +625,38 @@ overlayCanvas.addEventListener("click", (evt) => {
     traceTemp.points.push(p);
     finishRoomBtn.disabled = traceTemp.points.length < 3;
     redrawOverlay();
+    return;
+  }
+
+  if (mode === "idle") {
+    const geo = currentGeometry();
+    const hit = geo.rooms.slice().reverse().find((r) => pointInPolygon(p, r.points));
+    editingRoom = hit ? hit.id : null;
+    redrawOverlay();
+    setStatus(hit ? `Editing "${hit.name}" — drag its corner handles to reshape it.` : "");
   }
 });
 
 // ---- Pan (click-drag) and zoom (mouse wheel) -------------------------------
-// Click-to-place-a-point (calibration/tracing, above) and drag-to-pan share
-// the same canvas without needing to coordinate explicitly: a real drag
-// moves the pointer enough that the browser never fires the "click" event
-// afterward, so the point-placing handler simply never sees drags, and a
-// plain click never triggers this pan code (dragged stays false, so the
-// scroll position is never touched).
+// Dragging a room's selected vertex handle (set up in mousedown below) takes
+// priority over panning for that gesture; anywhere else on the canvas still
+// pans as before.
 let panState = null;
+let suppressNextClick = false;
 
 overlayCanvas.addEventListener("mousedown", (evt) => {
+  if (mode === "idle" && editingRoom) {
+    const geo = currentGeometry();
+    const room = geo.rooms.find((r) => r.id === editingRoom);
+    if (room) {
+      const idx = hitTestVertex(room, canvasPointFromEvent(evt));
+      if (idx !== -1) {
+        vertexDragState = { roomId: room.id, pointIndex: idx, dragged: false };
+        return;
+      }
+    }
+  }
+
   panState = {
     startX: evt.clientX,
     startY: evt.clientY,
@@ -581,6 +667,17 @@ overlayCanvas.addEventListener("mousedown", (evt) => {
 });
 
 window.addEventListener("mousemove", (evt) => {
+  if (vertexDragState) {
+    vertexDragState.dragged = true;
+    const geo = currentGeometry();
+    const room = geo.rooms.find((r) => r.id === vertexDragState.roomId);
+    if (room) {
+      room.points[vertexDragState.pointIndex] = canvasPointFromEvent(evt);
+      redrawOverlay();
+    }
+    return;
+  }
+
   if (!panState) return;
   const dx = evt.clientX - panState.startX;
   const dy = evt.clientY - panState.startY;
@@ -595,8 +692,18 @@ window.addEventListener("mousemove", (evt) => {
 });
 
 window.addEventListener("mouseup", () => {
+  if (vertexDragState) {
+    if (vertexDragState.dragged) {
+      recalcAllAreasForPage(currentPageNum);
+      suppressNextClick = true;
+    }
+    vertexDragState = null;
+    return;
+  }
+
   if (panState && panState.dragged) {
     overlayCanvas.style.cursor = "crosshair";
+    suppressNextClick = true;
   }
   panState = null;
 });
@@ -770,6 +877,7 @@ function removeRoom(id) {
   Object.values(pageGeometry).forEach((geo) => {
     geo.rooms = geo.rooms.filter((r) => r.id !== id);
   });
+  if (editingRoom === id) editingRoom = null;
   redrawOverlay();
   notifyParentState();
 }
