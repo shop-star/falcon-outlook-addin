@@ -609,5 +609,9 @@ function clearAll() {
 
 doneBtn.addEventListener("click", () => {
   Office.context.ui.messageParent(JSON.stringify({ type: "closing" }));
-  Office.context.ui.closeContainer();
+  // This dialog is a real browser window opened by the host, so closing
+  // itself is just the standard web API — there's no separate Office.js
+  // method for a dialog to close itself (Office.context.ui.closeContainer
+  // isn't a real API; that was a mistake).
+  window.close();
 });
