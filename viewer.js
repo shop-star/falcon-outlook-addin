@@ -197,6 +197,10 @@ function notifyParentError(message) {
 // reopening this window, and saves it on the email itself so they survive
 // closing the task pane entirely.
 function notifyParentState() {
+  // Any state change invalidates an already-prepared download — otherwise
+  // a further edit after "Preparing…" finishes could hand out a save link
+  // for a PDF that no longer matches what's on screen.
+  resetPreparedDownload();
   Office.context.ui.messageParent(
     JSON.stringify({ type: "state", rooms, geometry: pageGeometry, nextRoomId })
   );
@@ -1027,26 +1031,56 @@ async function buildAnnotatedPdfBytes() {
   return pdfDoc.save();
 }
 
+// Building the PDF (loading pdf-lib, parsing, embedding, saving) is all
+// async, and Outlook's dialog WebView appears to silently drop a download
+// triggered from a click handler that did any async work first — the
+// "real user gesture" it needs has expired by the time a.click() runs, so
+// nothing happens and no error is thrown either. The fix is a two-step
+// click: the first one builds the file and leaves the result sitting
+// ready; a second, fully synchronous click (no awaits in its handler)
+// then triggers the actual save, which WebKit can't drop.
+let preparedDownload = null; // { url, filename }, only set while ready to save
+let downloadPhase = "idle"; // idle | preparing | ready
+
+function resetPreparedDownload() {
+  if (downloadPhase !== "ready") return;
+  URL.revokeObjectURL(preparedDownload.url);
+  preparedDownload = null;
+  downloadPhase = "idle";
+  downloadPdfBtn.textContent = "Download PDF with room data";
+}
+
 downloadPdfBtn.addEventListener("click", () => {
-  if (!currentPdf || !originalBase64Content) return;
+  if (downloadPhase === "ready" && preparedDownload) {
+    const a = document.createElement("a");
+    a.href = preparedDownload.url;
+    a.download = preparedDownload.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setStatus("Downloaded PDF with room data.");
+    return;
+  }
+
+  if (downloadPhase === "preparing" || !currentPdf || !originalBase64Content) return;
+
+  downloadPhase = "preparing";
   downloadPdfBtn.disabled = true;
+  downloadPdfBtn.textContent = "Preparing…";
   setStatus("Preparing PDF with room data…");
   buildAnnotatedPdfBytes().then(
     (bytes) => {
       const blob = new Blob([bytes], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = suggestDownloadName(currentFileName);
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      preparedDownload = { url: URL.createObjectURL(blob), filename: suggestDownloadName(currentFileName) };
+      downloadPhase = "ready";
       downloadPdfBtn.disabled = false;
-      setStatus("Downloaded PDF with room data.");
+      downloadPdfBtn.textContent = "Click again to save PDF";
+      setStatus('PDF ready — click "Click again to save PDF" to download it.');
     },
     (err) => {
+      downloadPhase = "idle";
       downloadPdfBtn.disabled = false;
+      downloadPdfBtn.textContent = "Download PDF with room data";
       setStatus("Couldn't build the PDF download — " + describeError(err), true);
       notifyParentError("Couldn't build the PDF download — " + describeError(err));
     }
