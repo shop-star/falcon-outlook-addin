@@ -313,7 +313,12 @@ function renderPage(onResized) {
       (err) => {
         currentRenderTask = null;
         if (err && err.name === "RenderingCancelledException") return;
-        if (err && isBenignRenderRace(err.message)) return;
+        // describeError(), not err.message directly: if pdf.js rejects with
+        // a plain string rather than an Error instance for this specific
+        // failure, err.message would be undefined and this filter would
+        // silently fail to match — describeError() already falls back to
+        // String(err) the same way the two global handlers do.
+        if (isBenignRenderRace(describeError(err))) return;
         setStatus("Couldn't render this page — " + describeError(err), true);
         notifyParentError("Couldn't render this page — " + describeError(err));
       }
