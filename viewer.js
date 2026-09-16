@@ -313,6 +313,7 @@ function renderPage(onResized) {
       (err) => {
         currentRenderTask = null;
         if (err && err.name === "RenderingCancelledException") return;
+        if (err && isBenignRenderRace(err.message)) return;
         setStatus("Couldn't render this page — " + describeError(err), true);
         notifyParentError("Couldn't render this page — " + describeError(err));
       }
