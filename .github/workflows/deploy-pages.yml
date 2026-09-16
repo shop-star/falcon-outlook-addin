@@ -3,7 +3,7 @@ name: Deploy GitHub Pages
 on:
   push:
     branches:
-      - claude/sweet-fermat-fm4r0j
+      - main
   workflow_dispatch:
 
 permissions:
