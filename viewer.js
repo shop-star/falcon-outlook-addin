@@ -108,12 +108,29 @@ function describeError(err) {
   return `${name}: ${message}`;
 }
 
+// Fast wheel-zooming can still occasionally race two pdf.js render() calls
+// on the same canvas despite cancelling the previous task (cancellation
+// isn't immediate) — harmless in practice, the next render just takes
+// over, but the resulting error was still escaping as an unhandled
+// rejection here (not through renderPage's own, more targeted handling)
+// and showing a scary-looking message for something that isn't actually
+// a problem. Filtered out rather than chasing the underlying race further.
+function isBenignRenderRace(text) {
+  return typeof text === "string" && text.includes("Cannot use the same canvas");
+}
+
 window.addEventListener("error", (evt) => {
-  setStatus("Something went wrong: " + (evt.message || evt.error), true);
-  notifyParentError(evt.message || String(evt.error));
+  const message = evt.message || String(evt.error);
+  if (isBenignRenderRace(message)) return;
+  setStatus("Something went wrong: " + message, true);
+  notifyParentError(message);
 });
 window.addEventListener("unhandledrejection", (evt) => {
   const reason = evt.reason && evt.reason.message ? evt.reason.message : evt.reason;
+  if (isBenignRenderRace(String(reason))) {
+    evt.preventDefault();
+    return;
+  }
   setStatus("Something went wrong: " + reason, true);
   notifyParentError(String(reason));
 });
