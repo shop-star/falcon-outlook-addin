@@ -184,6 +184,13 @@ function handleDialogMessage(dialog, arg, fileName, base64Content) {
     updateResultsTable();
   } else if (msg.type === "error") {
     setStatus("Plan viewer — " + msg.message, true);
+  } else if (msg.type === "closeRequest") {
+    // A dialog can't close itself (window.close() no-ops on a window it
+    // didn't open via script) — only the parent's Dialog object, from
+    // displayDialogAsync's own callback, has a working close().
+    dialog.close();
+    currentDialog = null;
+    setStatus("Plan viewer window closed.");
   }
 }
 

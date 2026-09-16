@@ -607,11 +607,23 @@ function clearAll() {
   setStatus("Cleared all rooms and scale settings on every page.");
 }
 
-doneBtn.addEventListener("click", () => {
-  Office.context.ui.messageParent(JSON.stringify({ type: "closing" }));
-  // This dialog is a real browser window opened by the host, so closing
-  // itself is just the standard web API — there's no separate Office.js
-  // method for a dialog to close itself (Office.context.ui.closeContainer
-  // isn't a real API; that was a mistake).
-  window.close();
-});
+// A dialog can't close itself: window.close() only works on windows opened
+// by script (window.open()) in the same page, and a dialog opened by the
+// host application isn't considered "script-opened" from its own point of
+// view, so the call silently no-ops. The documented pattern is to ask the
+// parent to close it — the task pane holds the real Dialog object (from
+// displayDialogAsync's callback), which has a working .close() method.
+function requestClose() {
+  Office.context.ui.messageParent(JSON.stringify({ type: "closeRequest" }));
+}
+
+doneBtn.addEventListener("click", requestClose);
+
+// This pop-up staying on top of other applications when you switch away
+// is a documented macOS-specific limitation of the Office.js Dialog API
+// itself (tracked upstream in Microsoft's office-js repo) — there's no
+// parameter or workaround available from the add-in's own code to fix
+// the window layering directly. Auto-closing on blur sidesteps it: once
+// you switch to something else, the window gets out of the way instead
+// of floating above everything indefinitely.
+window.addEventListener("blur", requestClose);
