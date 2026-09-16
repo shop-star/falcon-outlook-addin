@@ -145,16 +145,36 @@ function onParentMessage(arg) {
   }
 
   if (msg.type === "start") {
-    incomingChunks = { fileName: msg.fileName, total: msg.total, parts: new Array(msg.total) };
+    incomingChunks = {
+      fileName: msg.fileName,
+      total: msg.total,
+      totalLength: msg.totalLength,
+      parts: new Array(msg.total),
+    };
     fileNameHeadingEl.textContent = msg.fileName || "Floor plan";
     setStatus(`Loading "${msg.fileName}"…`);
   } else if (msg.type === "chunk") {
     if (!incomingChunks) return;
+    if (msg.data.length !== msg.len) {
+      const err = `Chunk ${msg.index} arrived corrupted (expected ${msg.len} characters, got ${msg.data.length}).`;
+      setStatus(err, true);
+      notifyParentError(err);
+      incomingChunks = null;
+      return;
+    }
     incomingChunks.parts[msg.index] = msg.data;
+    Office.context.ui.messageParent(JSON.stringify({ type: "chunkAck", index: msg.index }));
     if (incomingChunks.parts.every((p) => p !== undefined)) {
       const base64Content = incomingChunks.parts.join("");
       const fileName = incomingChunks.fileName;
+      const expectedLength = incomingChunks.totalLength;
       incomingChunks = null;
+      if (base64Content.length !== expectedLength) {
+        const err = `PDF data was corrupted in transit (expected ${expectedLength} characters, got ${base64Content.length}).`;
+        setStatus(err, true);
+        notifyParentError(err);
+        return;
+      }
       openPdfFromBase64(fileName, base64Content);
     }
   } else if (msg.type === "removeRoom") {

@@ -137,7 +137,8 @@ function openAttachment(att) {
 // Outlook for Mac uses) — so the content is sent over Office's own
 // messageChild/messageParent channel instead, split into chunks since
 // there's no documented upper size limit to rely on for a multi-MB PDF.
-const CHUNK_SIZE = 200000; // characters per messageChild call
+const CHUNK_SIZE = 50000; // characters per messageChild call
+let pendingTransfer = null; // { dialog, base64Content, total, nextIndex }
 
 function openViewerDialog(fileName, base64Content) {
   const url = new URL(`viewer.html?v=__CACHEBUST__`, window.location.href).href;
@@ -173,6 +174,11 @@ function handleDialogMessage(dialog, arg, fileName, base64Content) {
 
   if (msg.type === "ready") {
     sendPdfToDialog(dialog, fileName, base64Content);
+  } else if (msg.type === "chunkAck") {
+    if (pendingTransfer && msg.index === pendingTransfer.nextIndex) {
+      pendingTransfer.nextIndex += 1;
+      sendNextChunk();
+    }
   } else if (msg.type === "rooms") {
     rooms = msg.rooms || [];
     updateResultsTable();
@@ -181,13 +187,33 @@ function handleDialogMessage(dialog, arg, fileName, base64Content) {
   }
 }
 
+// Chunks are sent one at a time, each waiting for the dialog to acknowledge
+// the previous one, rather than firing them all at once — there's no
+// documented size or rate limit for messageChild, and firing a burst of
+// ~200KB messages produced silent, undetected corruption in testing
+// (pdf.js failed with "Invalid PDF structure" even though every expected
+// chunk index had arrived). One-at-a-time with small chunks and integrity
+// checks on both ends trades a little latency for actually being reliable.
 function sendPdfToDialog(dialog, fileName, base64Content) {
   const total = Math.max(1, Math.ceil(base64Content.length / CHUNK_SIZE));
-  dialog.messageChild(JSON.stringify({ type: "start", fileName, total }));
-  for (let i = 0; i < total; i++) {
-    const chunk = base64Content.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-    dialog.messageChild(JSON.stringify({ type: "chunk", index: i, data: chunk }));
+  pendingTransfer = { dialog, base64Content, total, nextIndex: 0 };
+  dialog.messageChild(
+    JSON.stringify({ type: "start", fileName, total, totalLength: base64Content.length })
+  );
+  sendNextChunk();
+}
+
+function sendNextChunk() {
+  if (!pendingTransfer) return;
+  const { dialog, base64Content, total, nextIndex } = pendingTransfer;
+  if (nextIndex >= total) {
+    pendingTransfer = null;
+    return;
   }
+  const chunk = base64Content.slice(nextIndex * CHUNK_SIZE, (nextIndex + 1) * CHUNK_SIZE);
+  dialog.messageChild(
+    JSON.stringify({ type: "chunk", index: nextIndex, data: chunk, len: chunk.length })
+  );
 }
 
 function handleDialogEvent(arg) {
