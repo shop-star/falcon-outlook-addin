@@ -4,24 +4,25 @@
  * client-side in the task pane; nothing is uploaded anywhere.
  */
 
-// pdf.js is loaded lazily (see loadPdfJs below) rather than imported at the
-// top of this module: a static top-level import that fails to fetch (a
-// blocked CDN, a network hiccup) would throw before Office.onReady ever
-// gets registered, silently freezing the whole task pane on its initial
-// "Looking for PDF attachments…" state with no visible error.
+// pdf.js is self-hosted under vendor/pdfjs/ (same origin as this add-in)
+// rather than pulled from a public CDN: some corporate networks block
+// CDN domains like cdnjs.cloudflare.com from inside the Outlook webview,
+// which silently broke PDF loading even though the add-in itself loaded
+// fine (it's served from the same origin we already trust). It's also
+// loaded lazily, only when a PDF is actually opened, rather than via a
+// static top-level import: a failing top-level import would throw before
+// Office.onReady ever gets registered, freezing the whole task pane on
+// its initial "Looking for PDF attachments…" state with no visible error.
 let pdfjsLib = null;
 let pdfjsLoadPromise = null;
 
 function loadPdfJs() {
   if (!pdfjsLoadPromise) {
-    pdfjsLoadPromise = import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289/pdf.min.mjs").then(
-      (mod) => {
-        mod.GlobalWorkerOptions.workerSrc =
-          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289/pdf.worker.min.mjs";
-        pdfjsLib = mod;
-        return mod;
-      }
-    );
+    pdfjsLoadPromise = import("./vendor/pdfjs/pdf.min.mjs").then((mod) => {
+      mod.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
+      pdfjsLib = mod;
+      return mod;
+    });
   }
   return pdfjsLoadPromise;
 }
@@ -159,7 +160,7 @@ function openAttachment(att) {
   setStatus(`Loading "${att.name}"…`);
   loadPdfJs().catch(() => {
     setStatus(
-      "Couldn't load the PDF viewer library from its CDN. Check your network/proxy allows cdnjs.cloudflare.com, then try again.",
+      "Couldn't load the PDF viewer library. Try reloading the add-in.",
       true
     );
   });
@@ -205,7 +206,7 @@ function openAttachment(att) {
       },
       () => {
         setStatus(
-          "Couldn't load the PDF viewer library from its CDN. Check your network/proxy allows cdnjs.cloudflare.com, then try again.",
+          "Couldn't load the PDF viewer library. Try reloading the add-in.",
           true
         );
       }

@@ -25,17 +25,22 @@ Using GitHub Pages (free):
 
 1. Create a new **public** GitHub repository, e.g. `floor-area-addin`.
 2. Upload everything in this folder (`manifest.xml`, `taskpane.html`,
-   `taskpane.css`, `taskpane.js`, and the `assets/` folder) to the repo root.
+   `taskpane.css`, `taskpane.js`, and the `assets/` and `vendor/` folders)
+   to the repo root.
 3. In the repo, go to **Settings → Pages**, set **Source** to the `main`
    branch, root folder, and save.
 4. Wait a minute, then note the URL GitHub shows you, e.g.:
    `https://yourusername.github.io/floor-area-addin`
    That's your base URL — it should have **no trailing slash**.
 
-If you'd rather use a different host, just make sure the same four files
+If you'd rather use a different host, just make sure the same files
 end up reachable at `<base-url>/taskpane.html`,
-`<base-url>/taskpane.css`, `<base-url>/taskpane.js`, and
-`<base-url>/assets/icon-16.png` (etc).
+`<base-url>/taskpane.css`, `<base-url>/taskpane.js`,
+`<base-url>/assets/icon-16.png` (etc), and
+`<base-url>/vendor/pdfjs/pdf.min.mjs` (and `pdf.worker.min.mjs`) — the PDF
+viewer library is hosted alongside the add-in itself rather than pulled
+from a public CDN, since some corporate networks block CDN domains from
+inside the Outlook add-in sandbox.
 
 ## 2. Point the manifest at your hosted files
 
