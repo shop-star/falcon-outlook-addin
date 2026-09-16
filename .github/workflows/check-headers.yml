@@ -1,0 +1,17 @@
+name: Check headers
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check content-type headers
+        run: |
+          echo "-- pdf.min.mjs --"
+          curl -sI "https://shop-star.github.io/falcon-outlook-addin/vendor/pdfjs/pdf.min.mjs"
+          echo "-- pdf.worker.min.mjs --"
+          curl -sI "https://shop-star.github.io/falcon-outlook-addin/vendor/pdfjs/pdf.worker.min.mjs"
+          echo "-- taskpane.js --"
+          curl -sI "https://shop-star.github.io/falcon-outlook-addin/taskpane.js"
