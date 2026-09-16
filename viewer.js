@@ -150,6 +150,7 @@ function onParentMessage(arg) {
       total: msg.total,
       totalLength: msg.totalLength,
       parts: new Array(msg.total),
+      receivedCount: 0,
     };
     fileNameHeadingEl.textContent = msg.fileName || "Floor plan";
     setStatus(`Loading "${msg.fileName}"…`);
@@ -175,9 +176,19 @@ function onParentMessage(arg) {
       incomingChunks = null;
       return;
     }
+    // A plain `new Array(n)` is sparse until every index is explicitly
+    // assigned, and Array.prototype.every() silently SKIPS holes in a
+    // sparse array rather than visiting them — so checking completeness
+    // with parts.every(p => p !== undefined) would return true after just
+    // the first chunk (the only "real" element `.every()` could see),
+    // regardless of how many holes remained. An explicit counter avoids
+    // relying on sparse-array iteration semantics entirely.
+    if (incomingChunks.parts[msg.index] === undefined) {
+      incomingChunks.receivedCount += 1;
+    }
     incomingChunks.parts[msg.index] = rawChunk;
     Office.context.ui.messageParent(JSON.stringify({ type: "chunkAck", index: msg.index }));
-    if (incomingChunks.parts.every((p) => p !== undefined)) {
+    if (incomingChunks.receivedCount === incomingChunks.total) {
       const base64Content = incomingChunks.parts.join("");
       const fileName = incomingChunks.fileName;
       const expectedLength = incomingChunks.totalLength;
