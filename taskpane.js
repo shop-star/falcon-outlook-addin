@@ -16,10 +16,15 @@
 let pdfjsLib = null;
 let pdfjsLoadPromise = null;
 
+// The __CACHEBUST__ query string is substituted with the deploy commit SHA
+// at publish time (see .github/workflows/deploy-pages.yml), so every new
+// deploy fetches fresh files instead of reusing whatever Outlook's webview
+// cached from a previous version — the exact issue that made this fix look
+// like it hadn't been applied at all.
 function loadPdfJs() {
   if (!pdfjsLoadPromise) {
-    pdfjsLoadPromise = import("./vendor/pdfjs/pdf.min.mjs").then((mod) => {
-      mod.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
+    pdfjsLoadPromise = import("./vendor/pdfjs/pdf.min.mjs?v=__CACHEBUST__").then((mod) => {
+      mod.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs?v=__CACHEBUST__";
       pdfjsLib = mod;
       return mod;
     });

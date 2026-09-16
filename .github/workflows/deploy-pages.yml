@@ -31,6 +31,11 @@ jobs:
           cp manifest.xml taskpane.html taskpane.css taskpane.js _site/
           cp assets/*.png _site/assets/
           cp vendor/pdfjs/*.mjs _site/vendor/pdfjs/
+          # Outlook's own add-in cache (separate from normal HTTP caching)
+          # can hang onto old taskpane.js/css/pdf.js well past a reload, so
+          # every deploy gets a distinct query string on these references —
+          # forces a fresh fetch instead of silently reusing a stale copy.
+          sed -i "s/__CACHEBUST__/${GITHUB_SHA}/g" _site/taskpane.html _site/taskpane.js
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
