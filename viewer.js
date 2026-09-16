@@ -7,6 +7,24 @@
  * after every change so its results table stays in sync live.
  */
 
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`));
+    }, ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 // Same self-hosted, older pdf.js build as previously used successfully in
 // the task pane (see taskpane.js for why: newer releases, even their
 // "legacy" compatibility builds, hit JS-engine incompatibilities in
@@ -1068,7 +1086,11 @@ downloadPdfBtn.addEventListener("click", () => {
   downloadPdfBtn.disabled = true;
   downloadPdfBtn.textContent = "Preparing…";
   setStatus("Preparing PDF with room data…");
-  buildAnnotatedPdfBytes().then(
+  // If something in here hangs silently instead of rejecting (seen before
+  // in this environment — e.g. a script tag whose load/error events never
+  // fire), the button would otherwise sit on "Preparing…" forever with no
+  // way to tell what went wrong. A hard timeout guarantees a visible error.
+  withTimeout(buildAnnotatedPdfBytes(), 20000, "Building the PDF").then(
     (bytes) => {
       const blob = new Blob([bytes], { type: "application/pdf" });
       preparedDownload = { url: URL.createObjectURL(blob), filename: suggestDownloadName(currentFileName) };
