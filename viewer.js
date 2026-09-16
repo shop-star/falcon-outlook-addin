@@ -59,6 +59,11 @@ let traceTemp = { page: null, points: [] };
 // ---- Incoming PDF data (chunked from the task pane) -----------------------
 let incomingChunks = null; // { fileName, total, parts: [] }
 
+// A restoreGeometry message (sent right after the last PDF chunk) can arrive
+// before openPdfFromBase64's async PDF decode has finished setting up fresh
+// state — stash it and apply once currentPdf is actually ready.
+let pendingRestoreGeometry = null;
+
 // ---- DOM refs ----------------------------------------------------------
 const statusBarEl = document.getElementById("statusBar");
 const fileNameHeadingEl = document.getElementById("fileNameHeading");
@@ -143,8 +148,15 @@ function notifyParentError(message) {
   }
 }
 
-function notifyParentRooms() {
-  Office.context.ui.messageParent(JSON.stringify({ type: "rooms", rooms }));
+// Sends the flat room list (for the task pane's results table) together
+// with the full per-page geometry (calibration + traced polygon points) —
+// the task pane persists the geometry so scale/traces survive closing and
+// reopening this window, and saves it on the email itself so they survive
+// closing the task pane entirely.
+function notifyParentState() {
+  Office.context.ui.messageParent(
+    JSON.stringify({ type: "state", rooms, geometry: pageGeometry, nextRoomId })
+  );
 }
 
 // ---- Office.js bootstrap / message handshake with the task pane -----------
@@ -232,6 +244,42 @@ function onParentMessage(arg) {
     removeRoom(msg.id);
   } else if (msg.type === "clear") {
     clearAll();
+  } else if (msg.type === "restoreGeometry") {
+    if (currentPdf) {
+      applyRestoredGeometry(msg.geometry, msg.nextRoomId);
+    } else {
+      // The PDF hasn't finished decoding yet (this message always arrives
+      // right after the last chunk, but openPdfFromBase64 resolves
+      // asynchronously) — apply it once it has.
+      pendingRestoreGeometry = { geometry: msg.geometry, nextRoomId: msg.nextRoomId };
+    }
+  }
+}
+
+// Rebuilds this window's state from a geometry blob the task pane saved
+// from a previous time this same attachment was open (either earlier this
+// session, or restored from the email itself). The flat room list is
+// recomputed from the polygons rather than trusted as sent, so it can never
+// drift from what's actually drawn.
+function applyRestoredGeometry(geometry, nextId) {
+  pageGeometry = geometry || {};
+  nextRoomId = nextId || 1;
+  rooms = [];
+  Object.keys(pageGeometry).forEach((pageNumKey) => {
+    const pageNum = Number(pageNumKey);
+    const geo = pageGeometry[pageNum];
+    (geo.rooms || []).forEach((r) => {
+      const areaPageUnits = polygonAreaPageUnits(r.points);
+      const areaM2 = geo.calibration
+        ? areaPageUnits * geo.calibration.metersPerUnit * geo.calibration.metersPerUnit
+        : 0;
+      rooms.push({ id: r.id, page: pageNum, name: r.name, areaM2 });
+    });
+  });
+  redrawOverlay();
+  notifyParentState();
+  if (rooms.length > 0 || Object.keys(pageGeometry).length > 0) {
+    setStatus("Restored your previous scale and room traces for this plan.");
   }
 }
 
@@ -251,8 +299,13 @@ function openPdfFromBase64(fileName, base64Content) {
             resetToolState();
             setScaleBtn.disabled = false;
             renderPage();
-            notifyParentRooms();
+            notifyParentState();
             setStatus(`Loaded "${fileName}". Set the scale, then trace each room.`);
+            if (pendingRestoreGeometry) {
+              const restore = pendingRestoreGeometry;
+              pendingRestoreGeometry = null;
+              applyRestoredGeometry(restore.geometry, restore.nextRoomId);
+            }
           },
           (err) => {
             setStatus("Couldn't open this PDF — " + describeError(err), true);
@@ -662,7 +715,7 @@ roomNameConfirmBtn.addEventListener("click", () => {
   roomNameForm.hidden = true;
   resetToolState();
   redrawOverlay();
-  notifyParentRooms();
+  notifyParentState();
   setStatus(`Added "${name}" — ${areaM2.toFixed(2)} m². Trace another room, or move to the next page.`);
 });
 
@@ -681,7 +734,7 @@ function recalcAllAreasForPage(pageNum) {
     const flat = rooms.find((x) => x.id === r.id);
     if (flat) flat.areaM2 = areaM2;
   });
-  notifyParentRooms();
+  notifyParentState();
 }
 
 // ---- Page nav / zoom -------------------------------------------------------
@@ -718,7 +771,7 @@ function removeRoom(id) {
     geo.rooms = geo.rooms.filter((r) => r.id !== id);
   });
   redrawOverlay();
-  notifyParentRooms();
+  notifyParentState();
 }
 
 function clearAll() {
@@ -727,7 +780,7 @@ function clearAll() {
   pageGeometry = {};
   resetToolState();
   redrawOverlay();
-  notifyParentRooms();
+  notifyParentState();
   setStatus("Cleared all rooms and scale settings on every page.");
 }
 

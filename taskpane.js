@@ -10,7 +10,19 @@
 // ---- State -----------------------------------------------------------
 let rooms = []; // { id, page, name, areaM2 }
 let currentDialog = null;
-let lastOpenedAttachment = null; // { name, content } — for "Reopen window"
+let lastOpenedAttachment = null; // { name, content, geometry, nextRoomId } — for "Reopen window"
+
+// ---- Saved progress (per attachment, stored on the email itself) ----------
+// Office.js has no cross-window shared storage that's reliable in this
+// environment (see the pop-up's own chunking comments), so scale/room
+// progress is persisted through the mail item's own custom properties
+// instead — data that Exchange/M365 stores with the item itself, so it
+// comes back even after closing the task pane, reopening Outlook, or
+// switching devices, without needing any server of our own.
+const CUSTOM_PROP_KEY = "floorAreaTakeoffData";
+let itemCustomProperties = null;
+let savedState = {}; // { [attachmentName]: { geometry, nextRoomId } }
+let saveStateTimer = null;
 
 // ---- DOM refs ----------------------------------------------------------
 const attachmentListEl = document.getElementById("attachmentList");
@@ -43,11 +55,56 @@ Office.onReady((info) => {
       setStatus("This add-in only works inside Outlook.");
       return;
     }
-    loadAttachments();
+    loadSavedState(() => loadAttachments());
   } catch (e) {
     setStatus("Failed to start: " + e.message, true);
   }
 });
+
+// Loads any previously-saved scale/room progress for this email before the
+// attachment list is shown, so opening an attachment can restore it
+// immediately rather than the first render racing an async load.
+function loadSavedState(callback) {
+  Office.context.mailbox.item.loadCustomPropertiesAsync((result) => {
+    if (result.status === Office.AsyncResultStatus.Succeeded) {
+      itemCustomProperties = result.value;
+      const raw = itemCustomProperties.get(CUSTOM_PROP_KEY);
+      if (raw) {
+        try {
+          savedState = JSON.parse(raw);
+        } catch (e) {
+          savedState = {};
+        }
+      }
+    }
+    // If this failed, itemCustomProperties stays null and persistSavedState()
+    // silently no-ops — progress still works within this session either way.
+    callback();
+  });
+}
+
+// Debounced so tracing several rooms in quick succession doesn't fire a
+// saveAsync call per click.
+function persistSavedState() {
+  if (!itemCustomProperties) return;
+  clearTimeout(saveStateTimer);
+  saveStateTimer = setTimeout(() => {
+    try {
+      itemCustomProperties.set(CUSTOM_PROP_KEY, JSON.stringify(savedState));
+    } catch (e) {
+      // A very large/complex plan could exceed the custom property's size
+      // limit — the in-memory copy on lastOpenedAttachment still covers
+      // this session regardless.
+      setStatus("Progress is too large to save on this email — it'll still work for this session.", true);
+      return;
+    }
+    itemCustomProperties.saveAsync((result) => {
+      if (result.status !== Office.AsyncResultStatus.Succeeded) {
+        setStatus("Couldn't save your progress to this email — " + describeError(result.error), true);
+      }
+    });
+  }, 800);
+}
 
 function setStatus(msg, isError) {
   statusBarEl.textContent = msg || "";
@@ -122,7 +179,13 @@ function openAttachment(att) {
 
     rooms = [];
     updateResultsTable();
-    lastOpenedAttachment = { name: att.name, content };
+    const saved = savedState[att.name];
+    lastOpenedAttachment = {
+      name: att.name,
+      content,
+      geometry: saved ? saved.geometry : null,
+      nextRoomId: saved ? saved.nextRoomId : 1,
+    };
     viewerFileNameEl.textContent = att.name;
     viewerSectionEl.hidden = false;
     resultsSectionEl.hidden = false;
@@ -179,9 +242,18 @@ function handleDialogMessage(dialog, arg, fileName, base64Content) {
       pendingTransfer.nextIndex += 1;
       sendNextChunk();
     }
-  } else if (msg.type === "rooms") {
+  } else if (msg.type === "state") {
     rooms = msg.rooms || [];
     updateResultsTable();
+    if (lastOpenedAttachment) {
+      lastOpenedAttachment.geometry = msg.geometry || {};
+      lastOpenedAttachment.nextRoomId = msg.nextRoomId || 1;
+      savedState[lastOpenedAttachment.name] = {
+        geometry: lastOpenedAttachment.geometry,
+        nextRoomId: lastOpenedAttachment.nextRoomId,
+      };
+      persistSavedState();
+    }
   } else if (msg.type === "error") {
     setStatus("Plan viewer — " + msg.message, true);
   } else if (msg.type === "closeRequest") {
@@ -215,6 +287,18 @@ function sendNextChunk() {
   const { dialog, base64Content, total, nextIndex } = pendingTransfer;
   if (nextIndex >= total) {
     pendingTransfer = null;
+    // Restore any saved scale/room progress for this attachment right after
+    // the PDF itself — the viewer stashes this if it arrives before its own
+    // async PDF decode finishes, so ordering here doesn't need to be exact.
+    if (lastOpenedAttachment && lastOpenedAttachment.geometry) {
+      dialog.messageChild(
+        JSON.stringify({
+          type: "restoreGeometry",
+          geometry: lastOpenedAttachment.geometry,
+          nextRoomId: lastOpenedAttachment.nextRoomId || 1,
+        })
+      );
+    }
     return;
   }
   const rawChunk = base64Content.slice(nextIndex * CHUNK_SIZE, (nextIndex + 1) * CHUNK_SIZE);
@@ -317,10 +401,19 @@ function showCopyFallback(text) {
 
 clearAllBtn.addEventListener("click", () => {
   if (currentDialog) {
+    // The dialog's own clearAll() reports the cleared state back via the
+    // "state" message, which updates savedState/persists it the same as
+    // any other change — no need to touch it here too.
     currentDialog.messageChild(JSON.stringify({ type: "clear" }));
     return;
   }
   rooms = [];
   updateResultsTable();
+  if (lastOpenedAttachment) {
+    lastOpenedAttachment.geometry = {};
+    lastOpenedAttachment.nextRoomId = 1;
+    savedState[lastOpenedAttachment.name] = { geometry: {}, nextRoomId: 1 };
+    persistSavedState();
+  }
   setStatus("Cleared all rooms and scale settings on every page.");
 });

@@ -114,7 +114,15 @@ Once added, open any email with a PDF plan attached and you'll see a
 5. Back in the task pane, read the running list and total in the
    **Floor areas** section (it updates live as you trace), and use
    **Copy results** to paste a tab-separated list into Excel or your quote.
-   If you close the pop-up early, **Reopen window** brings it back.
+   If you close the pop-up early, **Reopen window** brings it back with your
+   scale and traced rooms intact.
+
+Your scale and traced rooms are saved automatically as you work — both for
+the rest of the session and, longer-term, on the email itself (via
+Outlook's own item storage, so no separate account or server is needed).
+Reopening the same email later, even on a different device, brings your
+progress back exactly where you left it. **Clear all** wipes this saved
+progress too, so use it when you actually want to start over.
 
 ## Limitations to know about
 
