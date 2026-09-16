@@ -389,22 +389,18 @@ function presentTaskPaneDownload(base64, filename) {
   // browsing context that created it, so it's useless once pasted into a
   // separate, real browser window; a data: URI carries the file itself.
   preparedTaskPaneDownload = { url: URL.createObjectURL(blob), base64, filename };
-  savePdfBtn.hidden = false;
+  // A real, visible link the user clicks themselves — every download so far
+  // that used a JS-synthesized click() (here and in the pop-up) silently did
+  // nothing, while a plain human click on a real <a href> (see the debug
+  // "open test PDF link" below) worked. This is the same fix applied to the
+  // actual generated PDF: no script ever calls .click() on this element.
+  savePdfBtn.href = preparedTaskPaneDownload.url;
+  savePdfBtn.download = filename;
   savePdfBtn.textContent = `Save "${filename}"`;
+  savePdfBtn.hidden = false;
   copyPdfLinkBtn.hidden = false;
   setStatus(`"${filename}" is ready — click "Save ${filename}" below to download it.`);
 }
-
-savePdfBtn.addEventListener("click", () => {
-  if (!preparedTaskPaneDownload) return;
-  const a = document.createElement("a");
-  a.href = preparedTaskPaneDownload.url;
-  a.download = preparedTaskPaneDownload.filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setStatus("Downloaded PDF with room data.");
-});
 
 // A data: URI (not the blob: URL above) so it actually works once pasted
 // into an ordinary browser window, completely outside Outlook — this

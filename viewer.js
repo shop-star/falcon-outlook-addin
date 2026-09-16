@@ -161,6 +161,7 @@ const roomNameCancelBtn = document.getElementById("roomNameCancelBtn");
 const scaleInfoEl = document.getElementById("scaleInfo");
 const doneBtn = document.getElementById("doneBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+const downloadPdfLink = document.getElementById("downloadPdfLink");
 
 function setStatus(msg, isError) {
   statusBarEl.textContent = msg || "";
@@ -1098,57 +1099,31 @@ async function buildAnnotatedPdfBytes() {
 }
 
 // Building the PDF (loading pdf-lib, parsing, embedding, saving) is all
-// async, and Outlook's dialog WebView appears to silently drop a download
-// triggered from a click handler that did any async work first — the
-// "real user gesture" it needs has expired by the time a.click() runs, so
-// nothing happens and no error is thrown either. The fix is a two-step
-// click: the first one builds the file and leaves the result sitting
-// ready; a second, fully synchronous click (no awaits in its handler)
-// then triggers the actual save, which WebKit can't drop.
+// async, so it can't happen inside a real anchor's click — same-window
+// navigation from a click handler with any await in front of it gets
+// silently dropped. And a JS-synthesized a.click() on the result, it turns
+// out, gets silently dropped too (confirmed by the task pane's identical
+// blob-download attempt): the earlier "two fully synchronous clicks" fix
+// didn't actually get a download out of Outlook's dialog WebView. What did
+// work, in this same WebView, is a plain human click on a real, visible
+// <a href> (see taskpane's debug test link) — so this button only builds
+// the file; the resulting downloadPdfLink is a real anchor the user has to
+// click themselves, with no script ever calling .click() on it.
 let preparedDownload = null; // { url, filename }, only set while ready to save
-let downloadPhase = "idle"; // idle | preparing | ready
 
 function resetPreparedDownload() {
-  if (downloadPhase !== "ready") return;
+  if (!preparedDownload) return;
   URL.revokeObjectURL(preparedDownload.url);
   preparedDownload = null;
-  downloadPhase = "idle";
+  downloadPdfLink.hidden = true;
+  downloadPdfBtn.hidden = false;
+  downloadPdfBtn.disabled = false;
   downloadPdfBtn.textContent = "Download PDF with room data";
 }
 
 downloadPdfBtn.addEventListener("click", () => {
-  if (downloadPhase === "ready" && preparedDownload) {
-    // The two-click fix (making sure this runs with no async work in a
-    // fresh user gesture) didn't get an actual download out of Outlook's
-    // dialog WebView either, which points to something more fundamental:
-    // the host app likely just hasn't wired up download handling for its
-    // embedded webview at all (a known WKWebView gap — apps have to opt
-    // into WKDownloadDelegate support themselves, and Office Add-in
-    // dialogs are an unusual place to have bothered). window.open() on the
-    // PDF is a different code path — it hands off to WebKit's own built-in
-    // native PDF viewer (the same thing that renders a bare PDF URL in
-    // Safari), which doesn't depend on the host supporting downloads at
-    // all and carries its own native save/share controls. Also still try
-    // the anchor click alongside it, in case that one only needed this
-    // fresh a gesture and the earlier test caught a transient issue.
-    const opened = window.open(preparedDownload.url, "_blank");
-    const a = document.createElement("a");
-    a.href = preparedDownload.url;
-    a.download = preparedDownload.filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setStatus(
-      opened
-        ? "Opened the PDF — use its own save/share button if it didn't download automatically."
-        : "Downloaded PDF with room data (or check for a new window if not)."
-    );
-    return;
-  }
+  if (!currentPdf || !originalBase64Content) return;
 
-  if (downloadPhase === "preparing" || !currentPdf || !originalBase64Content) return;
-
-  downloadPhase = "preparing";
   downloadPdfBtn.disabled = true;
   downloadPdfBtn.textContent = "Preparing…";
   setStatus("Preparing PDF with room data…");
@@ -1161,18 +1136,18 @@ downloadPdfBtn.addEventListener("click", () => {
       const blob = new Blob([bytes], { type: "application/pdf" });
       const filename = suggestDownloadName(currentFileName);
       preparedDownload = { url: URL.createObjectURL(blob), filename };
-      downloadPhase = "ready";
-      downloadPdfBtn.disabled = false;
-      downloadPdfBtn.textContent = "Click again to save PDF";
-      setStatus('PDF ready — click "Click again to save PDF" to download it, or check the task pane for a save button.');
+      downloadPdfLink.href = preparedDownload.url;
+      downloadPdfLink.download = filename;
+      downloadPdfLink.hidden = false;
+      downloadPdfBtn.hidden = true;
+      setStatus('PDF ready — click "Click here to save the PDF" to download it.');
       // The task pane is a different embedded surface than this pop-up —
-      // worth trying the save from there too, in case Outlook's dialog
-      // WebView specifically just doesn't have download handling wired up
-      // (the task pane might not share that gap).
+      // worth trying the save from there too, in case it behaves
+      // differently (it doesn't — same fix applies there too — but the
+      // task pane save link is a useful second copy if this window closes).
       sendPdfToTaskPane(bytes, filename);
     },
     (err) => {
-      downloadPhase = "idle";
       downloadPdfBtn.disabled = false;
       downloadPdfBtn.textContent = "Download PDF with room data";
       setStatus("Couldn't build the PDF download — " + describeError(err), true);

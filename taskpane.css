@@ -46,7 +46,7 @@ h2 { font-size: 13px; margin: 0 0 8px; color: var(--brand-dark); }
 }
 .attachment-item .name { font-size: 12px; word-break: break-all; }
 
-button {
+button, a.btn {
   font-size: 12px;
   padding: 5px 10px;
   border: 1px solid var(--border);
@@ -54,14 +54,15 @@ button {
   background: #fff;
   cursor: pointer;
 }
-button:hover:not(:disabled) { background: var(--bg-muted); }
+a.btn { display: inline-block; text-decoration: none; color: inherit; }
+button:hover:not(:disabled), a.btn:hover { background: var(--bg-muted); }
 button:disabled { opacity: 0.5; cursor: default; }
-button.primary {
+button.primary, a.btn.primary {
   background: var(--brand);
   border-color: var(--brand);
   color: #fff;
 }
-button.primary:hover:not(:disabled) { background: var(--brand-dark); }
+button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--brand-dark); }
 
 .status-bar {
   min-height: 16px;
