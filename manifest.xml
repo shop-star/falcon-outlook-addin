@@ -34,14 +34,6 @@
     </Sets>
   </Requirements>
 
-  <FormSettings>
-    <Form xsi:type="ItemRead">
-      <DesktopSettings>
-        <SourceLocation DefaultValue="https://shop-star.github.io/falcon-outlook-addin/taskpane.html" />
-      </DesktopSettings>
-    </Form>
-  </FormSettings>
-
   <Permissions>ReadWriteItem</Permissions>
 
   <Rule xsi:type="RuleCollection" Mode="Or">
@@ -65,11 +57,6 @@
             <OfficeTab id="TabDefault">
               <Group id="FloorAreaGroup">
                 <Label resid="GroupLabel" />
-                <Icon>
-                  <bt:Image size="16" resid="Icon.16x16" />
-                  <bt:Image size="32" resid="Icon.32x32" />
-                  <bt:Image size="80" resid="Icon.80x80" />
-                </Icon>
                 <Control xsi:type="Button" id="FloorAreaButton">
                   <Label resid="ButtonLabel" />
                   <Supertip>
