@@ -1,0 +1,22 @@
+name: Validate manifest
+
+on:
+  push:
+    branches:
+      - claude/sweet-fermat-fm4r0j
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate manifest against Microsoft's schema/service
+        run: npx --yes office-addin-manifest validate manifest.xml
