@@ -623,7 +623,18 @@ doneBtn.addEventListener("click", requestClose);
 // is a documented macOS-specific limitation of the Office.js Dialog API
 // itself (tracked upstream in Microsoft's office-js repo) — there's no
 // parameter or workaround available from the add-in's own code to fix
-// the window layering directly. Auto-closing on blur sidesteps it: once
-// you switch to something else, the window gets out of the way instead
-// of floating above everything indefinitely.
+// the window layering directly. Auto-closing when the window loses focus
+// sidesteps it: once you switch to something else, the window gets out
+// of the way instead of floating above everything indefinitely.
+//
+// Both signals are wired up since this environment's WebKit build has
+// repeatedly turned out to support standard web APIs inconsistently
+// (missing globals, incorrect array iteration, etc. — see taskpane.js):
+// window "blur" alone didn't fire on switching applications, so the Page
+// Visibility API is added too, as a differently-implemented alternative
+// that some embedded webviews support more reliably than raw focus events
+// for OS-level app switching specifically.
 window.addEventListener("blur", requestClose);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) requestClose();
+});
