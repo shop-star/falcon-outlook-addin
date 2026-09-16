@@ -118,6 +118,7 @@ button.primary:hover:not(:disabled) { background: var(--brand-dark); }
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
