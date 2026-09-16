@@ -162,7 +162,20 @@ function onParentMessage(arg) {
       incomingChunks = null;
       return;
     }
-    incomingChunks.parts[msg.index] = msg.data;
+    let rawChunk;
+    try {
+      // Chunks arrive URL-encoded (see taskpane.js) specifically to keep
+      // base64's +, /, = characters off the wire, since a bare "+" turning
+      // into a space is a known length-preserving corruption mode.
+      rawChunk = decodeURIComponent(msg.data);
+    } catch (e) {
+      const err = `Chunk ${msg.index} arrived corrupted (couldn't decode: ${e.message}).`;
+      setStatus(err, true);
+      notifyParentError(err);
+      incomingChunks = null;
+      return;
+    }
+    incomingChunks.parts[msg.index] = rawChunk;
     Office.context.ui.messageParent(JSON.stringify({ type: "chunkAck", index: msg.index }));
     if (incomingChunks.parts.every((p) => p !== undefined)) {
       const base64Content = incomingChunks.parts.join("");

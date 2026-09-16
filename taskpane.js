@@ -210,9 +210,15 @@ function sendNextChunk() {
     pendingTransfer = null;
     return;
   }
-  const chunk = base64Content.slice(nextIndex * CHUNK_SIZE, (nextIndex + 1) * CHUNK_SIZE);
+  const rawChunk = base64Content.slice(nextIndex * CHUNK_SIZE, (nextIndex + 1) * CHUNK_SIZE);
+  // Base64 uses +, /, and = — and a bare "+" silently becoming a space is a
+  // classic corruption mode in web-adjacent transport layers that treat
+  // form/URL-encoding conventions (length-preserving, so the earlier
+  // length-only integrity check couldn't catch it). URL-encoding each
+  // chunk keeps those characters out of the wire format entirely.
+  const encoded = encodeURIComponent(rawChunk);
   dialog.messageChild(
-    JSON.stringify({ type: "chunk", index: nextIndex, data: chunk, len: chunk.length })
+    JSON.stringify({ type: "chunk", index: nextIndex, data: encoded, len: encoded.length })
   );
 }
 
