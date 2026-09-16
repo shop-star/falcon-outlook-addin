@@ -63,6 +63,7 @@ let incomingChunks = null; // { fileName, total, parts: [] }
 const statusBarEl = document.getElementById("statusBar");
 const fileNameHeadingEl = document.getElementById("fileNameHeading");
 
+const canvasScroller = document.getElementById("canvasScroller");
 const pdfCanvas = document.getElementById("pdfCanvas");
 const overlayCanvas = document.getElementById("overlayCanvas");
 const pdfCtx = pdfCanvas.getContext("2d");
@@ -262,12 +263,17 @@ function base64ToUint8Array(base64) {
 }
 
 // ---- Rendering --------------------------------------------------------
-function renderPage() {
+// onResized, if given, runs right after the canvas is resized to the new
+// scale but before the (async) redraw — used by wheel-zoom to restore the
+// scroll position so the point under the cursor stays put.
+function renderPage(onResized) {
   if (!currentPdf) return;
   currentPdf.getPage(currentPageNum).then((page) => {
     const viewport = page.getViewport({ scale: renderScale });
     pdfCanvas.width = overlayCanvas.width = Math.ceil(viewport.width);
     pdfCanvas.height = overlayCanvas.height = Math.ceil(viewport.height);
+
+    if (onResized) onResized();
 
     page.render({ canvasContext: pdfCtx, viewport }).promise.then(() => {
       redrawOverlay();
@@ -450,6 +456,73 @@ overlayCanvas.addEventListener("click", (evt) => {
     redrawOverlay();
   }
 });
+
+// ---- Pan (click-drag) and zoom (mouse wheel) -------------------------------
+// Click-to-place-a-point (calibration/tracing, above) and drag-to-pan share
+// the same canvas without needing to coordinate explicitly: a real drag
+// moves the pointer enough that the browser never fires the "click" event
+// afterward, so the point-placing handler simply never sees drags, and a
+// plain click never triggers this pan code (dragged stays false, so the
+// scroll position is never touched).
+let panState = null;
+
+overlayCanvas.addEventListener("mousedown", (evt) => {
+  panState = {
+    startX: evt.clientX,
+    startY: evt.clientY,
+    startScrollLeft: canvasScroller.scrollLeft,
+    startScrollTop: canvasScroller.scrollTop,
+    dragged: false,
+  };
+});
+
+window.addEventListener("mousemove", (evt) => {
+  if (!panState) return;
+  const dx = evt.clientX - panState.startX;
+  const dy = evt.clientY - panState.startY;
+  if (!panState.dragged && Math.hypot(dx, dy) > 4) {
+    panState.dragged = true;
+    overlayCanvas.style.cursor = "grabbing";
+  }
+  if (panState.dragged) {
+    canvasScroller.scrollLeft = panState.startScrollLeft - dx;
+    canvasScroller.scrollTop = panState.startScrollTop - dy;
+  }
+});
+
+window.addEventListener("mouseup", () => {
+  if (panState && panState.dragged) {
+    overlayCanvas.style.cursor = "crosshair";
+  }
+  panState = null;
+});
+
+// Zooms around the point under the cursor (rather than the canvas's
+// top-left corner) so the plan doesn't visually jump while zooming in on
+// a specific detail.
+canvasScroller.addEventListener(
+  "wheel",
+  (evt) => {
+    if (!currentPdf) return;
+    evt.preventDefault();
+    const rect = canvasScroller.getBoundingClientRect();
+    const offsetX = evt.clientX - rect.left;
+    const offsetY = evt.clientY - rect.top;
+    const pdfX = (canvasScroller.scrollLeft + offsetX) / renderScale;
+    const pdfY = (canvasScroller.scrollTop + offsetY) / renderScale;
+
+    const oldScale = renderScale;
+    renderScale =
+      evt.deltaY < 0 ? Math.min(4, renderScale * 1.1) : Math.max(0.5, renderScale / 1.1);
+    if (renderScale === oldScale) return;
+
+    renderPage(() => {
+      canvasScroller.scrollLeft = pdfX * renderScale - offsetX;
+      canvasScroller.scrollTop = pdfY * renderScale - offsetY;
+    });
+  },
+  { passive: false }
+);
 
 setScaleBtn.addEventListener("click", () => {
   resetToolState();
