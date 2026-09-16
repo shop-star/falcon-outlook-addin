@@ -160,8 +160,6 @@ const roomNameCancelBtn = document.getElementById("roomNameCancelBtn");
 
 const scaleInfoEl = document.getElementById("scaleInfo");
 const doneBtn = document.getElementById("doneBtn");
-const downloadPdfBtn = document.getElementById("downloadPdfBtn");
-const downloadPdfLink = document.getElementById("downloadPdfLink");
 
 function setStatus(msg, isError) {
   statusBarEl.textContent = msg || "";
@@ -216,10 +214,6 @@ function notifyParentError(message) {
 // reopening this window, and saves it on the email itself so they survive
 // closing the task pane entirely.
 function notifyParentState() {
-  // Any state change invalidates an already-prepared download — otherwise
-  // a further edit after "Preparing…" finishes could hand out a save link
-  // for a PDF that no longer matches what's on screen.
-  resetPreparedDownload();
   Office.context.ui.messageParent(
     JSON.stringify({ type: "state", rooms, geometry: pageGeometry, nextRoomId })
   );
@@ -311,6 +305,8 @@ function onParentMessage(arg) {
     removeRoom(msg.id);
   } else if (msg.type === "clear") {
     clearAll();
+  } else if (msg.type === "buildDownload") {
+    buildAndSendDownload();
   } else if (msg.type === "downloadChunkAck") {
     if (pendingDownloadSend && msg.index === pendingDownloadSend.nextIndex) {
       pendingDownloadSend.nextIndex += 1;
@@ -373,7 +369,6 @@ function openPdfFromBase64(fileName, base64Content) {
             renderScale = 1.5;
             resetToolState();
             setScaleBtn.disabled = false;
-            downloadPdfBtn.disabled = false;
             renderPage();
             notifyParentState();
             setStatus(`Loaded "${fileName}". Set the scale, then trace each room.`);
@@ -1098,63 +1093,32 @@ async function buildAnnotatedPdfBytes() {
   return pdfDoc.save();
 }
 
-// Building the PDF (loading pdf-lib, parsing, embedding, saving) is all
-// async, so it can't happen inside a real anchor's click — same-window
-// navigation from a click handler with any await in front of it gets
-// silently dropped. And a JS-synthesized a.click() on the result, it turns
-// out, gets silently dropped too (confirmed by the task pane's identical
-// blob-download attempt): the earlier "two fully synchronous clicks" fix
-// didn't actually get a download out of Outlook's dialog WebView. What did
-// work, in this same WebView, is a plain human click on a real, visible
-// <a href> (see taskpane's debug test link) — so this button only builds
-// the file; the resulting downloadPdfLink is a real anchor the user has to
-// click themselves, with no script ever calling .click() on it.
-let preparedDownload = null; // { url, filename }, only set while ready to save
-
-function resetPreparedDownload() {
-  if (!preparedDownload) return;
-  URL.revokeObjectURL(preparedDownload.url);
-  preparedDownload = null;
-  downloadPdfLink.hidden = true;
-  downloadPdfBtn.hidden = false;
-  downloadPdfBtn.disabled = false;
-  downloadPdfBtn.textContent = "Download PDF with room data";
-}
-
-downloadPdfBtn.addEventListener("click", () => {
+// There's a single download control, and it lives in the task pane, not
+// here — the pop-up is just where the plan gets viewed and traced. The
+// task pane asks this window to build the annotated PDF (a "buildDownload"
+// message, handled in onParentMessage) and this window sends the finished
+// bytes back over sendPdfToTaskPane, the same chunked transfer already used
+// for the original PDF content.
+function buildAndSendDownload() {
   if (!currentPdf || !originalBase64Content) return;
 
-  downloadPdfBtn.disabled = true;
-  downloadPdfBtn.textContent = "Preparing…";
   setStatus("Preparing PDF with room data…");
   // If something in here hangs silently instead of rejecting (seen before
   // in this environment — e.g. a script tag whose load/error events never
-  // fire), the button would otherwise sit on "Preparing…" forever with no
-  // way to tell what went wrong. A hard timeout guarantees a visible error.
+  // fire), there would otherwise be no way to tell what went wrong. A hard
+  // timeout guarantees a visible error.
   withTimeout(buildAnnotatedPdfBytes(), 20000, "Building the PDF").then(
     (bytes) => {
-      const blob = new Blob([bytes], { type: "application/pdf" });
       const filename = suggestDownloadName(currentFileName);
-      preparedDownload = { url: URL.createObjectURL(blob), filename };
-      downloadPdfLink.href = preparedDownload.url;
-      downloadPdfLink.download = filename;
-      downloadPdfLink.hidden = false;
-      downloadPdfBtn.hidden = true;
-      setStatus('PDF ready — click "Click here to save the PDF" to download it.');
-      // The task pane is a different embedded surface than this pop-up —
-      // worth trying the save from there too, in case it behaves
-      // differently (it doesn't — same fix applies there too — but the
-      // task pane save link is a useful second copy if this window closes).
+      setStatus(`"${filename}" is ready in the task pane.`);
       sendPdfToTaskPane(bytes, filename);
     },
     (err) => {
-      downloadPdfBtn.disabled = false;
-      downloadPdfBtn.textContent = "Download PDF with room data";
       setStatus("Couldn't build the PDF download — " + describeError(err), true);
       notifyParentError("Couldn't build the PDF download — " + describeError(err));
     }
   );
-});
+}
 
 // A dialog can't close itself: window.close() only works on windows opened
 // by script (window.open()) in the same page, and a dialog opened by the

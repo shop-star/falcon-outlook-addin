@@ -30,7 +30,6 @@ jobs:
           mkdir -p _site/assets _site/vendor/pdfjs _site/vendor/pdf-lib
           cp manifest.xml taskpane.html taskpane.css taskpane.js viewer.html viewer.css viewer.js _site/
           cp assets/*.png _site/assets/
-          cp assets/*.pdf _site/assets/
           cp vendor/pdfjs/*.js _site/vendor/pdfjs/
           cp vendor/pdf-lib/*.js _site/vendor/pdf-lib/
           # Outlook's own add-in cache (separate from normal HTTP caching)

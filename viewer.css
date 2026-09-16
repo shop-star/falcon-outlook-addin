@@ -25,7 +25,7 @@ body {
 h1 { font-size: 18px; margin: 0; }
 .app-header { margin-bottom: 10px; }
 
-button, a.btn {
+button {
   font-size: 13px;
   padding: 6px 12px;
   border: 1px solid var(--border);
@@ -33,15 +33,14 @@ button, a.btn {
   background: #fff;
   cursor: pointer;
 }
-a.btn { display: inline-block; text-decoration: none; color: inherit; }
-button:hover:not(:disabled), a.btn:hover { background: var(--bg-muted); }
+button:hover:not(:disabled) { background: var(--bg-muted); }
 button:disabled { opacity: 0.5; cursor: default; }
-button.primary, a.btn.primary {
+button.primary {
   background: var(--brand);
   border-color: var(--brand);
   color: #fff;
 }
-button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--brand-dark); }
+button.primary:hover:not(:disabled) { background: var(--brand-dark); }
 
 .status-bar {
   min-height: 18px;

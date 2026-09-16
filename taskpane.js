@@ -37,13 +37,15 @@ const totalM2El = document.getElementById("totalM2");
 const copyResultsBtn = document.getElementById("copyResultsBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const copyFallback = document.getElementById("copyFallback");
-const savePdfBtn = document.getElementById("savePdfBtn");
-const copyPdfLinkBtn = document.getElementById("copyPdfLinkBtn");
+const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 
-// ---- Receiving a finished PDF from the pop-up, for the "save from the task
-// pane instead of the pop-up" long shot — see viewer.js's sendPdfToTaskPane.
+// ---- The one PDF download control lives here in the task pane. Clicking it
+// asks the open pop-up to build the annotated PDF (see viewer.js's
+// buildAndSendDownload), which sends the finished bytes back over the same
+// chunked, ack-based transfer already proven reliable for the original PDF
+// content (see viewer.js's sendPdfToTaskPane).
 let incomingDownload = null; // { fileName, total, totalLength, parts, receivedCount }
-let preparedTaskPaneDownload = null; // { url, filename }
+let preparedTaskPaneDownload = null; // { url, base64, filename }, once ready to click
 
 // ---- Office.js bootstrap ------------------------------------------------
 // Surface any otherwise-silent script error in the status bar instead of
@@ -196,6 +198,8 @@ function openAttachment(att) {
     viewerFileNameEl.textContent = att.name;
     viewerSectionEl.hidden = false;
     resultsSectionEl.hidden = false;
+    resetPreparedTaskPaneDownload();
+    downloadPdfBtn.hidden = false;
     openViewerDialog(att.name, content);
   });
 }
@@ -252,6 +256,10 @@ function handleDialogMessage(dialog, arg, fileName, base64Content) {
   } else if (msg.type === "state") {
     rooms = msg.rooms || [];
     updateResultsTable();
+    // Any state change invalidates an already-prepared download — otherwise
+    // a further edit after "Preparing…" finishes could hand out a save link
+    // for a PDF that no longer matches what's on screen.
+    resetPreparedTaskPaneDownload();
     if (lastOpenedAttachment) {
       lastOpenedAttachment.geometry = msg.geometry || {};
       lastOpenedAttachment.nextRoomId = msg.nextRoomId || 1;
@@ -377,46 +385,45 @@ function handleIncomingDownloadChunk(dialog, msg) {
 }
 
 function presentTaskPaneDownload(base64, filename) {
-  if (preparedTaskPaneDownload) {
-    URL.revokeObjectURL(preparedTaskPaneDownload.url);
-  }
+  resetPreparedTaskPaneDownload();
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   const blob = new Blob([bytes], { type: "application/pdf" });
-  // Kept alongside the blob URL specifically to build a data: URI on demand
-  // (see copyPdfLinkBtn below) — a blob: URL only resolves inside the
-  // browsing context that created it, so it's useless once pasted into a
-  // separate, real browser window; a data: URI carries the file itself.
-  preparedTaskPaneDownload = { url: URL.createObjectURL(blob), base64, filename };
-  // A real, visible link the user clicks themselves — every download so far
-  // that used a JS-synthesized click() (here and in the pop-up) silently did
-  // nothing, while a plain human click on a real <a href> (see the debug
-  // "open test PDF link" below) worked. This is the same fix applied to the
-  // actual generated PDF: no script ever calls .click() on this element.
-  savePdfBtn.href = preparedTaskPaneDownload.url;
-  savePdfBtn.download = filename;
-  savePdfBtn.textContent = `Save "${filename}"`;
-  savePdfBtn.hidden = false;
-  copyPdfLinkBtn.hidden = false;
+  preparedTaskPaneDownload = { url: URL.createObjectURL(blob), filename };
+  // A real, visible link the user clicks themselves — every download that
+  // used a JS-synthesized click() (in both the task pane and the pop-up)
+  // silently did nothing, while a plain human click on a real <a href>
+  // worked. No script ever calls .click() on this element; the click that
+  // gets it to the user's disk is genuinely theirs.
+  downloadPdfBtn.href = preparedTaskPaneDownload.url;
+  downloadPdfBtn.download = filename;
+  downloadPdfBtn.textContent = `Save "${filename}"`;
   setStatus(`"${filename}" is ready — click "Save ${filename}" below to download it.`);
 }
 
-// A data: URI (not the blob: URL above) so it actually works once pasted
-// into an ordinary browser window, completely outside Outlook — this
-// doesn't need any server to host the file, since the URI carries the
-// file's own bytes.
-copyPdfLinkBtn.addEventListener("click", () => {
+function resetPreparedTaskPaneDownload() {
   if (!preparedTaskPaneDownload) return;
-  const dataUri = `data:application/pdf;base64,${preparedTaskPaneDownload.base64}`;
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(dataUri).then(
-      () => setStatus("Link copied — paste it into a Safari/Chrome address bar to open or save the PDF."),
-      () => showCopyFallback(dataUri)
-    );
-  } else {
-    showCopyFallback(dataUri);
+  URL.revokeObjectURL(preparedTaskPaneDownload.url);
+  preparedTaskPaneDownload = null;
+  downloadPdfBtn.removeAttribute("href");
+  downloadPdfBtn.textContent = "Download PDF with room data";
+}
+
+// Two states behind one button: an idle click asks the open pop-up to build
+// the annotated PDF (buildAndSendDownload in viewer.js) and just waits — the
+// resulting real <a href>, set by presentTaskPaneDownload once the bytes
+// arrive, is what a second, genuine click actually downloads.
+downloadPdfBtn.addEventListener("click", (evt) => {
+  if (preparedTaskPaneDownload) return; // real download click — let it navigate
+  evt.preventDefault();
+  if (!currentDialog) {
+    setStatus('Reopen the plan viewer window first, then click "Download PDF" again.', true);
+    return;
   }
+  downloadPdfBtn.textContent = "Preparing…";
+  setStatus("Preparing PDF with room data…");
+  currentDialog.messageChild(JSON.stringify({ type: "buildDownload" }));
 });
 
 reopenViewerBtn.addEventListener("click", () => {
