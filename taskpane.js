@@ -38,6 +38,7 @@ const copyResultsBtn = document.getElementById("copyResultsBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const copyFallback = document.getElementById("copyFallback");
 const savePdfBtn = document.getElementById("savePdfBtn");
+const copyPdfLinkBtn = document.getElementById("copyPdfLinkBtn");
 
 // ---- Receiving a finished PDF from the pop-up, for the "save from the task
 // pane instead of the pop-up" long shot — see viewer.js's sendPdfToTaskPane.
@@ -383,9 +384,14 @@ function presentTaskPaneDownload(base64, filename) {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   const blob = new Blob([bytes], { type: "application/pdf" });
-  preparedTaskPaneDownload = { url: URL.createObjectURL(blob), filename };
+  // Kept alongside the blob URL specifically to build a data: URI on demand
+  // (see copyPdfLinkBtn below) — a blob: URL only resolves inside the
+  // browsing context that created it, so it's useless once pasted into a
+  // separate, real browser window; a data: URI carries the file itself.
+  preparedTaskPaneDownload = { url: URL.createObjectURL(blob), base64, filename };
   savePdfBtn.hidden = false;
   savePdfBtn.textContent = `Save "${filename}"`;
+  copyPdfLinkBtn.hidden = false;
   setStatus(`"${filename}" is ready — click "Save ${filename}" below to download it.`);
 }
 
@@ -398,6 +404,23 @@ savePdfBtn.addEventListener("click", () => {
   a.click();
   a.remove();
   setStatus("Downloaded PDF with room data.");
+});
+
+// A data: URI (not the blob: URL above) so it actually works once pasted
+// into an ordinary browser window, completely outside Outlook — this
+// doesn't need any server to host the file, since the URI carries the
+// file's own bytes.
+copyPdfLinkBtn.addEventListener("click", () => {
+  if (!preparedTaskPaneDownload) return;
+  const dataUri = `data:application/pdf;base64,${preparedTaskPaneDownload.base64}`;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(dataUri).then(
+      () => setStatus("Link copied — paste it into a Safari/Chrome address bar to open or save the PDF."),
+      () => showCopyFallback(dataUri)
+    );
+  } else {
+    showCopyFallback(dataUri);
+  }
 });
 
 reopenViewerBtn.addEventListener("click", () => {
