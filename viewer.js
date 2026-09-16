@@ -310,6 +310,11 @@ function onParentMessage(arg) {
     removeRoom(msg.id);
   } else if (msg.type === "clear") {
     clearAll();
+  } else if (msg.type === "downloadChunkAck") {
+    if (pendingDownloadSend && msg.index === pendingDownloadSend.nextIndex) {
+      pendingDownloadSend.nextIndex += 1;
+      sendNextDownloadChunk();
+    }
   } else if (msg.type === "restoreGeometry") {
     if (currentPdf) {
       applyRestoredGeometry(msg.geometry, msg.nextRoomId);
@@ -425,6 +430,49 @@ function base64ToUint8Array(base64) {
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
   return bytes;
+}
+
+function uint8ArrayToBase64(bytes) {
+  // String.fromCharCode.apply on the whole array at once can blow the call
+  // stack for a multi-MB PDF — build it up in smaller pieces instead.
+  let binary = "";
+  const pieceSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += pieceSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + pieceSize));
+  }
+  return btoa(binary);
+}
+
+// ---- Sending the finished PDF to the task pane ----------------------------
+// Mirrors the task pane's own chunked, ack-based send of the original PDF
+// (see taskpane.js) in reverse — same reasoning: no documented size/rate
+// limit for cross-window Office.js messages, and firing one big message
+// produced silent corruption in testing for the original transfer.
+const DOWNLOAD_CHUNK_SIZE = 50000;
+let pendingDownloadSend = null; // { base64, total, nextIndex }
+
+function sendPdfToTaskPane(bytes, filename) {
+  const base64 = uint8ArrayToBase64(bytes);
+  const total = Math.max(1, Math.ceil(base64.length / DOWNLOAD_CHUNK_SIZE));
+  pendingDownloadSend = { base64, total, nextIndex: 0 };
+  Office.context.ui.messageParent(
+    JSON.stringify({ type: "downloadStart", fileName: filename, total, totalLength: base64.length })
+  );
+  sendNextDownloadChunk();
+}
+
+function sendNextDownloadChunk() {
+  if (!pendingDownloadSend) return;
+  const { base64, total, nextIndex } = pendingDownloadSend;
+  if (nextIndex >= total) {
+    pendingDownloadSend = null;
+    return;
+  }
+  const rawChunk = base64.slice(nextIndex * DOWNLOAD_CHUNK_SIZE, (nextIndex + 1) * DOWNLOAD_CHUNK_SIZE);
+  const encoded = encodeURIComponent(rawChunk);
+  Office.context.ui.messageParent(
+    JSON.stringify({ type: "downloadChunk", index: nextIndex, data: encoded, len: encoded.length })
+  );
 }
 
 // ---- Rendering --------------------------------------------------------
@@ -1111,11 +1159,17 @@ downloadPdfBtn.addEventListener("click", () => {
   withTimeout(buildAnnotatedPdfBytes(), 20000, "Building the PDF").then(
     (bytes) => {
       const blob = new Blob([bytes], { type: "application/pdf" });
-      preparedDownload = { url: URL.createObjectURL(blob), filename: suggestDownloadName(currentFileName) };
+      const filename = suggestDownloadName(currentFileName);
+      preparedDownload = { url: URL.createObjectURL(blob), filename };
       downloadPhase = "ready";
       downloadPdfBtn.disabled = false;
       downloadPdfBtn.textContent = "Click again to save PDF";
-      setStatus('PDF ready — click "Click again to save PDF" to download it.');
+      setStatus('PDF ready — click "Click again to save PDF" to download it, or check the task pane for a save button.');
+      // The task pane is a different embedded surface than this pop-up —
+      // worth trying the save from there too, in case Outlook's dialog
+      // WebView specifically just doesn't have download handling wired up
+      // (the task pane might not share that gap).
+      sendPdfToTaskPane(bytes, filename);
     },
     (err) => {
       downloadPhase = "idle";
