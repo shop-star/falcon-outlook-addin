@@ -1,15 +1,17 @@
 # Floor Area Takeoff — Outlook add-in
 
 Adds a "Floor Areas" button to the ribbon when you're reading an email.
-Click it, pick a PDF plan attached to that email, click two points on a
-known measurement (a scale bar or a labelled dimension) to calibrate, then
-click around each room's outline. It lists every room's area in m² and ft²,
-with a running total, and you can copy the results straight into a
+Click it, pick a PDF plan attached to that email, and it opens in a
+full-sized pop-up window — the task pane itself is too narrow to usefully
+show a floor plan. In that window, click two points on a known measurement
+(a scale bar or a labelled dimension) to calibrate, then click around each
+room's outline. Results (area in m², with a running total) show live back
+in the task pane as you trace, and you can copy them straight into a
 spreadsheet or quote.
 
-Everything runs inside the task pane in your browser/Outlook client — the
-PDF is never uploaded anywhere. There's no subscription, no per-use cost,
-and no account to sign up for.
+Everything runs in your browser/Outlook client — the PDF is never uploaded
+anywhere. There's no subscription, no per-use cost, and no account to sign
+up for.
 
 ## What you need
 
@@ -25,8 +27,8 @@ Using GitHub Pages (free):
 
 1. Create a new **public** GitHub repository, e.g. `floor-area-addin`.
 2. Upload everything in this folder (`manifest.xml`, `taskpane.html`,
-   `taskpane.css`, `taskpane.js`, and the `assets/` and `vendor/` folders)
-   to the repo root.
+   `taskpane.css`, `taskpane.js`, `viewer.html`, `viewer.css`, `viewer.js`,
+   and the `assets/` and `vendor/` folders) to the repo root.
 3. In the repo, go to **Settings → Pages**, set **Source** to the `main`
    branch, root folder, and save.
 4. Wait a minute, then note the URL GitHub shows you, e.g.:
@@ -36,6 +38,7 @@ Using GitHub Pages (free):
 If you'd rather use a different host, just make sure the same files
 end up reachable at `<base-url>/taskpane.html`,
 `<base-url>/taskpane.css`, `<base-url>/taskpane.js`,
+`<base-url>/viewer.html`, `<base-url>/viewer.css`, `<base-url>/viewer.js`,
 `<base-url>/assets/icon-16.png` (etc), and
 `<base-url>/vendor/pdfjs/pdf.min.js` (and `pdf.worker.min.js`) — the PDF
 viewer library is hosted alongside the add-in itself rather than pulled
@@ -99,15 +102,19 @@ Once added, open any email with a PDF plan attached and you'll see a
 
 1. Open the email with the plan attached, click **Floor Areas** in the
    ribbon.
-2. Pick the PDF from the list and click **Open**.
-3. Click **Set scale**, then click the two ends of a labelled dimension or
-   the plan's scale bar, and enter its real length and unit when prompted.
+2. Pick the PDF from the list and click **Open** — it opens in a separate,
+   full-sized pop-up window.
+3. In that window, click **Set scale**, then click the two ends of a
+   labelled dimension or the plan's scale bar, and enter its real length
+   and unit when prompted.
 4. Click **Trace room**, click around a room's outline corner by corner,
    then **Finish room** and give it a name. Repeat for each room (and each
    page, if the plan has multiple floors — you'll need to set the scale
    once per page).
-5. Read the running list and total in the **Floor areas** section, and use
+5. Back in the task pane, read the running list and total in the
+   **Floor areas** section (it updates live as you trace), and use
    **Copy results** to paste a tab-separated list into Excel or your quote.
+   If you close the pop-up early, **Reopen window** brings it back.
 
 ## Limitations to know about
 

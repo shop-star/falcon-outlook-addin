@@ -1,123 +1,27 @@
 /* Floor Area Takeoff — Outlook task pane add-in
- * Loads a PDF plan attachment, lets the user calibrate scale from a known
- * measurement, then trace room outlines to get floor areas. Everything runs
- * client-side in the task pane; nothing is uploaded anywhere.
+ * Lists PDF plan attachments on the open email. Opening one fetches its
+ * content, then hands off to a separate pop-up window (viewer.html/.js,
+ * opened via the Office Dialog API) for the actual PDF viewing, scale
+ * calibration, and room tracing — a task pane is too narrow to usefully
+ * display a floor plan. This page keeps the attachment picker and the
+ * live results table, which stay in sync with the pop-up via messages.
  */
 
-// pdf.js is self-hosted under vendor/pdfjs/ (same origin as this add-in)
-// rather than pulled from a public CDN: some corporate networks block
-// CDN domains like cdnjs.cloudflare.com from inside the Outlook webview,
-// which silently broke PDF loading even though the add-in itself loaded
-// fine (it's served from the same origin we already trust).
-//
-// It's pdf.js 3.11.174 rather than a newer release: newer major versions
-// (and even their "legacy" compatibility builds) rely on JS engine
-// features that Outlook for Mac's older embedded WebKit doesn't have yet
-// (hit both "Can't find variable: Iterator" and a temporal-dead-zone
-// "Cannot access uninitialized variable" error from two different newer
-// pdf.js releases before landing on this well-established version).
-//
-// It's also a classic UMD script (sets window.pdfjsLib), not an ES
-// module — 3.x predates pdf.js publishing .mjs builds — so it's loaded
-// via a plain <script> tag rather than dynamic import(), which is a far
-// older and more universally-supported loading mechanism.
-//
-// Loading is lazy (only when a PDF is actually opened) and happens after
-// Office.onReady rather than blocking it, so a load failure here can
-// never freeze the rest of the task pane.
-let pdfjsLib = null;
-let pdfjsLoadPromise = null;
-
-// The __CACHEBUST__ query string is substituted with the deploy commit SHA
-// at publish time (see .github/workflows/deploy-pages.yml), so every new
-// deploy fetches fresh files instead of reusing whatever Outlook's webview
-// cached from a previous version — the exact issue that made an earlier
-// fix look like it hadn't been applied at all.
-function loadPdfJs() {
-  if (!pdfjsLoadPromise) {
-    pdfjsLoadPromise = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "./vendor/pdfjs/pdf.min.js?v=__CACHEBUST__";
-      script.onload = () => {
-        if (!window.pdfjsLib) {
-          reject(new Error("pdf.min.js loaded but window.pdfjsLib was not set"));
-          return;
-        }
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.js?v=__CACHEBUST__";
-        pdfjsLib = window.pdfjsLib;
-        resolve(pdfjsLib);
-      };
-      script.onerror = () => reject(new Error("Failed to load pdf.min.js"));
-      document.head.appendChild(script);
-    }).catch((err) => {
-      // Don't memoize a failure — a transient error shouldn't permanently
-      // block every future retry with a stale cached rejection.
-      pdfjsLoadPromise = null;
-      throw err;
-    });
-  }
-  return pdfjsLoadPromise;
-}
-
-const UNIT_TO_M = { mm: 0.001, cm: 0.01, m: 1, ft: 0.3048, in: 0.0254 };
-const M2_TO_FT2 = 10.76391;
-
 // ---- State -----------------------------------------------------------
-let currentPdf = null;
-let currentPageNum = 1;
-let renderScale = 1.5;
-
-/** pageGeometry[pageNum] = { calibration: {p1,p2,metersPerUnit,label} | null, rooms: [{id,name,points}] } */
-let pageGeometry = {};
-
-/** flat list used for the results table/total, mirrors pageGeometry rooms */
 let rooms = []; // { id, page, name, areaM2 }
-let nextRoomId = 1;
-
-let mode = "idle"; // idle | calibrate | trace
-let calibTemp = { p1: null, p2: null };
-let traceTemp = { page: null, points: [] };
+let currentDialog = null;
+let lastOpenedAttachment = null; // { name, content } — for "Reopen window"
 
 // ---- DOM refs ----------------------------------------------------------
 const attachmentListEl = document.getElementById("attachmentList");
 const statusBarEl = document.getElementById("statusBar");
 const viewerSectionEl = document.getElementById("viewerSection");
 const resultsSectionEl = document.getElementById("resultsSection");
-
-const pdfCanvas = document.getElementById("pdfCanvas");
-const overlayCanvas = document.getElementById("overlayCanvas");
-const pdfCtx = pdfCanvas.getContext("2d");
-const overlayCtx = overlayCanvas.getContext("2d");
-
-const prevPageBtn = document.getElementById("prevPageBtn");
-const nextPageBtn = document.getElementById("nextPageBtn");
-const pageIndicatorEl = document.getElementById("pageIndicator");
-const zoomOutBtn = document.getElementById("zoomOutBtn");
-const zoomInBtn = document.getElementById("zoomInBtn");
-const zoomIndicatorEl = document.getElementById("zoomIndicator");
-
-const setScaleBtn = document.getElementById("setScaleBtn");
-const traceRoomBtn = document.getElementById("traceRoomBtn");
-const undoPointBtn = document.getElementById("undoPointBtn");
-const finishRoomBtn = document.getElementById("finishRoomBtn");
-const cancelActionBtn = document.getElementById("cancelActionBtn");
-
-const calibrationForm = document.getElementById("calibrationForm");
-const calibLengthInput = document.getElementById("calibLengthInput");
-const calibUnitSelect = document.getElementById("calibUnitSelect");
-const calibConfirmBtn = document.getElementById("calibConfirmBtn");
-const calibCancelBtn = document.getElementById("calibCancelBtn");
-
-const roomNameForm = document.getElementById("roomNameForm");
-const roomNameInput = document.getElementById("roomNameInput");
-const roomNameConfirmBtn = document.getElementById("roomNameConfirmBtn");
-const roomNameCancelBtn = document.getElementById("roomNameCancelBtn");
-
-const scaleInfoEl = document.getElementById("scaleInfo");
+const viewerFileNameEl = document.getElementById("viewerFileName");
+const reopenViewerBtn = document.getElementById("reopenViewerBtn");
 
 const resultsBody = document.getElementById("resultsBody");
 const totalM2El = document.getElementById("totalM2");
-const totalFt2El = document.getElementById("totalFt2");
 const copyResultsBtn = document.getElementById("copyResultsBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const copyFallback = document.getElementById("copyFallback");
@@ -148,6 +52,16 @@ Office.onReady((info) => {
 function setStatus(msg, isError) {
   statusBarEl.textContent = msg || "";
   statusBarEl.style.color = isError ? "#b3261e" : "";
+}
+
+// Dev tools/Inspect Element are unreliable in some Outlook clients (notably
+// New Outlook for Mac), so error text needs to be readable directly from
+// the status bar rather than assuming anyone can open a console.
+function describeError(err) {
+  if (!err) return "unknown error";
+  const name = err.name || "Error";
+  const message = err.message || String(err);
+  return `${name}: ${message}`;
 }
 
 // ---- 1. Attachment list --------------------------------------------------
@@ -188,21 +102,8 @@ function loadAttachments() {
   });
 }
 
-// Dev tools/Inspect Element are unreliable in some Outlook clients (notably
-// New Outlook for Mac), so error text needs to be readable directly from
-// the status bar rather than assuming anyone can open a console.
-function describeError(err) {
-  if (!err) return "unknown error";
-  const name = err.name || "Error";
-  const message = err.message || String(err);
-  return `${name}: ${message}`;
-}
-
 function openAttachment(att) {
   setStatus(`Loading "${att.name}"…`);
-  loadPdfJs().catch((err) => {
-    setStatus("Couldn't load the PDF viewer library — " + describeError(err), true);
-  });
   Office.context.mailbox.item.getAttachmentContentAsync(att.id, (result) => {
     if (result.status !== Office.AsyncResultStatus.Succeeded) {
       setStatus(
@@ -218,373 +119,91 @@ function openAttachment(att) {
       setStatus("Unexpected attachment format — couldn't read this file as a PDF.", true);
       return;
     }
-    loadPdfJs().then(
-      () => {
-        try {
-          const bytes = base64ToUint8Array(content);
-          pdfjsLib.getDocument({ data: bytes }).promise.then(
-            (pdf) => {
-              currentPdf = pdf;
-              currentPageNum = 1;
-              pageGeometry = {};
-              rooms = [];
-              nextRoomId = 1;
-              renderScale = 1.5;
-              viewerSectionEl.hidden = false;
-              resultsSectionEl.hidden = false;
-              resetToolState();
-              renderPage();
-              updateResultsTable();
-              setStatus(`Loaded "${att.name}". Set the scale, then trace each room.`);
-            },
-            (err) => setStatus("Couldn't open this PDF — " + describeError(err), true)
-          );
-        } catch (e) {
-          setStatus("Couldn't decode this attachment as a PDF — " + describeError(e), true);
-        }
-      },
-      (err) => {
-        setStatus("Couldn't load the PDF viewer library — " + describeError(err), true);
+
+    rooms = [];
+    updateResultsTable();
+    lastOpenedAttachment = { name: att.name, content };
+    viewerFileNameEl.textContent = att.name;
+    viewerSectionEl.hidden = false;
+    resultsSectionEl.hidden = false;
+    openViewerDialog(att.name, content);
+  });
+}
+
+// ---- 2. Pop-up plan viewer (Office Dialog API) -----------------------------
+// The dialog can't be sent the PDF bytes as a URL parameter (way too big),
+// and localStorage is documented as unreliable for sharing data between a
+// task pane and a dialog specifically in Safari-based hosts (which is what
+// Outlook for Mac uses) — so the content is sent over Office's own
+// messageChild/messageParent channel instead, split into chunks since
+// there's no documented upper size limit to rely on for a multi-MB PDF.
+const CHUNK_SIZE = 200000; // characters per messageChild call
+
+function openViewerDialog(fileName, base64Content) {
+  const url = new URL(`viewer.html?v=__CACHEBUST__`, window.location.href).href;
+  setStatus(`Opening "${fileName}" in a new window…`);
+  Office.context.ui.displayDialogAsync(
+    url,
+    { height: 80, width: 70, displayInIframe: false },
+    (asyncResult) => {
+      if (asyncResult.status !== Office.AsyncResultStatus.Succeeded) {
+        setStatus(
+          "Couldn't open the plan viewer window — " + describeError(asyncResult.error),
+          true
+        );
+        return;
       }
-    );
-  });
-}
-
-function base64ToUint8Array(base64) {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
-  return bytes;
-}
-
-// ---- 2. Rendering --------------------------------------------------------
-function renderPage() {
-  if (!currentPdf) return;
-  currentPdf.getPage(currentPageNum).then((page) => {
-    const viewport = page.getViewport({ scale: renderScale });
-    pdfCanvas.width = overlayCanvas.width = Math.ceil(viewport.width);
-    pdfCanvas.height = overlayCanvas.height = Math.ceil(viewport.height);
-
-    page.render({ canvasContext: pdfCtx, viewport }).promise.then(() => {
-      redrawOverlay();
-    });
-
-    pageIndicatorEl.textContent = `Page ${currentPageNum} / ${currentPdf.numPages}`;
-    zoomIndicatorEl.textContent = `${Math.round(renderScale / 1.5 * 100)}%`;
-    prevPageBtn.disabled = currentPageNum <= 1;
-    nextPageBtn.disabled = currentPageNum >= currentPdf.numPages;
-  });
-}
-
-function currentGeometry() {
-  if (!pageGeometry[currentPageNum]) {
-    pageGeometry[currentPageNum] = { calibration: null, rooms: [] };
-  }
-  return pageGeometry[currentPageNum];
-}
-
-function toCanvas([x, y]) {
-  return [x * renderScale, y * renderScale];
-}
-
-function redrawOverlay() {
-  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-  const geo = currentGeometry();
-
-  // Calibration line
-  if (geo.calibration) {
-    drawLine(geo.calibration.p1, geo.calibration.p2, "#e07b00", 2, true, geo.calibration.label);
-  }
-  if (mode === "calibrate" && calibTemp.p1 && !calibTemp.p2) {
-    drawPoint(calibTemp.p1, "#e07b00");
-  }
-
-  // Completed rooms
-  geo.rooms.forEach((room) => drawPolygon(room.points, "#15655c", room.name));
-
-  // In-progress trace
-  if (mode === "trace" && traceTemp.page === currentPageNum && traceTemp.points.length > 0) {
-    drawPolyline(traceTemp.points, "#c2185b");
-  }
-
-  traceRoomBtn.disabled = !geo.calibration;
-  setScaleBtn.textContent = geo.calibration ? "Re-set scale" : "Set scale";
-  if (geo.calibration) {
-    scaleInfoEl.hidden = false;
-    scaleInfoEl.textContent = `Scale on this page: ${geo.calibration.label} = ${geo.calibration.pixelDist.toFixed(
-      1
-    )} plan units (1 unit ≈ ${(geo.calibration.metersPerUnit * 1000).toFixed(2)} mm).`;
-  } else {
-    scaleInfoEl.hidden = true;
-  }
-}
-
-function drawPoint(p, color) {
-  const [cx, cy] = toCanvas(p);
-  overlayCtx.beginPath();
-  overlayCtx.arc(cx, cy, 4, 0, Math.PI * 2);
-  overlayCtx.fillStyle = color;
-  overlayCtx.fill();
-}
-
-function drawLine(p1, p2, color, width, withMarkers, label) {
-  const [x1, y1] = toCanvas(p1);
-  const [x2, y2] = toCanvas(p2);
-  overlayCtx.beginPath();
-  overlayCtx.moveTo(x1, y1);
-  overlayCtx.lineTo(x2, y2);
-  overlayCtx.strokeStyle = color;
-  overlayCtx.lineWidth = width;
-  overlayCtx.stroke();
-  if (withMarkers) {
-    drawPoint(p1, color);
-    drawPoint(p2, color);
-  }
-  if (label) {
-    overlayCtx.fillStyle = color;
-    overlayCtx.font = "12px Segoe UI, Arial, sans-serif";
-    overlayCtx.fillText(label, (x1 + x2) / 2 + 4, (y1 + y2) / 2 - 4);
-  }
-}
-
-function drawPolyline(points, color) {
-  if (points.length === 0) return;
-  overlayCtx.beginPath();
-  const [x0, y0] = toCanvas(points[0]);
-  overlayCtx.moveTo(x0, y0);
-  for (let i = 1; i < points.length; i++) {
-    const [x, y] = toCanvas(points[i]);
-    overlayCtx.lineTo(x, y);
-  }
-  overlayCtx.strokeStyle = color;
-  overlayCtx.lineWidth = 2;
-  overlayCtx.stroke();
-  points.forEach((p) => drawPoint(p, color));
-}
-
-function drawPolygon(points, color, label) {
-  if (points.length < 3) return;
-  overlayCtx.beginPath();
-  const [x0, y0] = toCanvas(points[0]);
-  overlayCtx.moveTo(x0, y0);
-  for (let i = 1; i < points.length; i++) {
-    const [x, y] = toCanvas(points[i]);
-    overlayCtx.lineTo(x, y);
-  }
-  overlayCtx.closePath();
-  overlayCtx.fillStyle = "rgba(21, 101, 92, 0.15)";
-  overlayCtx.fill();
-  overlayCtx.strokeStyle = color;
-  overlayCtx.lineWidth = 2;
-  overlayCtx.stroke();
-
-  const centroid = points.reduce(
-    (acc, p) => [acc[0] + p[0] / points.length, acc[1] + p[1] / points.length],
-    [0, 0]
-  );
-  const [cx, cy] = toCanvas(centroid);
-  overlayCtx.fillStyle = "#0e453e";
-  overlayCtx.font = "12px Segoe UI, Arial, sans-serif";
-  overlayCtx.textAlign = "center";
-  overlayCtx.fillText(label, cx, cy);
-  overlayCtx.textAlign = "left";
-}
-
-// ---- Geometry helpers -----------------------------------------------------
-function distance(p1, p2) {
-  return Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
-}
-
-function polygonAreaPageUnits(points) {
-  let sum = 0;
-  const n = points.length;
-  for (let i = 0; i < n; i++) {
-    const [x1, y1] = points[i];
-    const [x2, y2] = points[(i + 1) % n];
-    sum += x1 * y2 - x2 * y1;
-  }
-  return Math.abs(sum) / 2;
-}
-
-function canvasPointFromEvent(evt) {
-  const rect = overlayCanvas.getBoundingClientRect();
-  const cx = evt.clientX - rect.left;
-  const cy = evt.clientY - rect.top;
-  return [cx / renderScale, cy / renderScale];
-}
-
-// ---- Mode / tool state ----------------------------------------------------
-function resetToolState() {
-  mode = "idle";
-  calibTemp = { p1: null, p2: null };
-  traceTemp = { page: null, points: [] };
-  calibrationForm.hidden = true;
-  roomNameForm.hidden = true;
-  undoPointBtn.hidden = true;
-  finishRoomBtn.hidden = true;
-  cancelActionBtn.hidden = true;
-}
-
-overlayCanvas.addEventListener("click", (evt) => {
-  const p = canvasPointFromEvent(evt);
-
-  if (mode === "calibrate") {
-    if (!calibTemp.p1) {
-      calibTemp.p1 = p;
-      setStatus("Now click the other end of that same measurement.");
-      redrawOverlay();
-    } else if (!calibTemp.p2) {
-      calibTemp.p2 = p;
-      calibrationForm.hidden = false;
-      calibLengthInput.focus();
-      setStatus("Enter the real-world length of the line you just drew.");
-      redrawOverlay();
+      const dialog = asyncResult.value;
+      currentDialog = dialog;
+      dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) =>
+        handleDialogMessage(dialog, arg, fileName, base64Content)
+      );
+      dialog.addEventHandler(Office.EventType.DialogEventReceived, handleDialogEvent);
     }
-    return;
-  }
-
-  if (mode === "trace") {
-    traceTemp.points.push(p);
-    finishRoomBtn.disabled = traceTemp.points.length < 3;
-    redrawOverlay();
-  }
-});
-
-setScaleBtn.addEventListener("click", () => {
-  resetToolState();
-  mode = "calibrate";
-  cancelActionBtn.hidden = false;
-  setStatus("Click one end of a known measurement on the plan (a scale bar or a labelled dimension).");
-});
-
-traceRoomBtn.addEventListener("click", () => {
-  resetToolState();
-  mode = "trace";
-  traceTemp = { page: currentPageNum, points: [] };
-  undoPointBtn.hidden = false;
-  finishRoomBtn.hidden = false;
-  finishRoomBtn.disabled = true;
-  cancelActionBtn.hidden = false;
-  setStatus("Click each corner of the room in order, then click “Finish room”.");
-});
-
-undoPointBtn.addEventListener("click", () => {
-  traceTemp.points.pop();
-  finishRoomBtn.disabled = traceTemp.points.length < 3;
-  redrawOverlay();
-});
-
-cancelActionBtn.addEventListener("click", () => {
-  resetToolState();
-  setStatus("Cancelled.");
-  redrawOverlay();
-});
-
-calibConfirmBtn.addEventListener("click", () => {
-  const value = parseFloat(calibLengthInput.value);
-  const unit = calibUnitSelect.value;
-  if (!value || value <= 0) {
-    setStatus("Enter a positive length first.", true);
-    return;
-  }
-  const lengthM = value * UNIT_TO_M[unit];
-  const pixelDist = distance(calibTemp.p1, calibTemp.p2);
-  if (pixelDist === 0) {
-    setStatus("Those two points were the same — try again.", true);
-    return;
-  }
-  const geo = currentGeometry();
-  geo.calibration = {
-    p1: calibTemp.p1,
-    p2: calibTemp.p2,
-    pixelDist,
-    metersPerUnit: lengthM / pixelDist,
-    label: `${value}${unit}`,
-  };
-  resetToolState();
-  redrawOverlay();
-  recalcAllAreasForPage(currentPageNum);
-  setStatus("Scale set for this page. Click “Trace room” to start on the first room.");
-});
-
-calibCancelBtn.addEventListener("click", () => {
-  resetToolState();
-  redrawOverlay();
-});
-
-finishRoomBtn.addEventListener("click", () => {
-  if (traceTemp.points.length < 3) return;
-  roomNameForm.hidden = false;
-  roomNameInput.value = `Room ${rooms.length + 1}`;
-  roomNameInput.focus();
-  roomNameInput.select();
-});
-
-roomNameConfirmBtn.addEventListener("click", () => {
-  const geo = currentGeometry();
-  if (!geo.calibration) {
-    setStatus("Scale isn't set for this page anymore — set it again first.", true);
-    return;
-  }
-  const name = roomNameInput.value.trim() || `Room ${rooms.length + 1}`;
-  const areaPageUnits = polygonAreaPageUnits(traceTemp.points);
-  const areaM2 = areaPageUnits * geo.calibration.metersPerUnit * geo.calibration.metersPerUnit;
-
-  const id = nextRoomId++;
-  geo.rooms.push({ id, name, points: traceTemp.points.slice() });
-  rooms.push({ id, page: currentPageNum, name, areaM2 });
-
-  roomNameForm.hidden = true;
-  resetToolState();
-  redrawOverlay();
-  updateResultsTable();
-  setStatus(`Added "${name}" — ${areaM2.toFixed(2)} m². Trace another room, or move to the next page.`);
-});
-
-roomNameCancelBtn.addEventListener("click", () => {
-  roomNameForm.hidden = true;
-});
-
-// If the scale is re-set on a page, existing rooms on that page keep their
-// traced outlines but their areas are recalculated against the new scale.
-function recalcAllAreasForPage(pageNum) {
-  const geo = pageGeometry[pageNum];
-  if (!geo || !geo.calibration) return;
-  geo.rooms.forEach((r) => {
-    const areaPageUnits = polygonAreaPageUnits(r.points);
-    const areaM2 = areaPageUnits * geo.calibration.metersPerUnit * geo.calibration.metersPerUnit;
-    const flat = rooms.find((x) => x.id === r.id);
-    if (flat) flat.areaM2 = areaM2;
-  });
-  updateResultsTable();
+  );
 }
 
-// ---- Page nav / zoom -------------------------------------------------------
-prevPageBtn.addEventListener("click", () => {
-  if (currentPageNum > 1) {
-    resetToolState();
-    currentPageNum -= 1;
-    renderPage();
+function handleDialogMessage(dialog, arg, fileName, base64Content) {
+  let msg;
+  try {
+    msg = JSON.parse(arg.message);
+  } catch (e) {
+    return;
   }
-});
-nextPageBtn.addEventListener("click", () => {
-  if (currentPdf && currentPageNum < currentPdf.numPages) {
-    resetToolState();
-    currentPageNum += 1;
-    renderPage();
+
+  if (msg.type === "ready") {
+    sendPdfToDialog(dialog, fileName, base64Content);
+  } else if (msg.type === "rooms") {
+    rooms = msg.rooms || [];
+    updateResultsTable();
+  } else if (msg.type === "error") {
+    setStatus("Plan viewer — " + msg.message, true);
   }
-});
-zoomInBtn.addEventListener("click", () => {
-  renderScale = Math.min(4, renderScale * 1.25);
-  renderPage();
-});
-zoomOutBtn.addEventListener("click", () => {
-  renderScale = Math.max(0.5, renderScale / 1.25);
-  renderPage();
+}
+
+function sendPdfToDialog(dialog, fileName, base64Content) {
+  const total = Math.max(1, Math.ceil(base64Content.length / CHUNK_SIZE));
+  dialog.messageChild(JSON.stringify({ type: "start", fileName, total }));
+  for (let i = 0; i < total; i++) {
+    const chunk = base64Content.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+    dialog.messageChild(JSON.stringify({ type: "chunk", index: i, data: chunk }));
+  }
+}
+
+function handleDialogEvent(arg) {
+  // 12006 = dialog closed by the user (the only one we need to react to).
+  if (arg.error === 12006) {
+    currentDialog = null;
+    setStatus("Plan viewer window closed.");
+  }
+}
+
+reopenViewerBtn.addEventListener("click", () => {
+  if (!lastOpenedAttachment) return;
+  openViewerDialog(lastOpenedAttachment.name, lastOpenedAttachment.content);
 });
 
-// ---- Results table ----------------------------------------------------------
+// ---- 3. Results table ----------------------------------------------------
 function updateResultsTable() {
   resultsBody.innerHTML = "";
   let totalM2 = 0;
@@ -601,9 +220,6 @@ function updateResultsTable() {
     const m2Td = document.createElement("td");
     m2Td.textContent = r.areaM2.toFixed(2);
 
-    const ft2Td = document.createElement("td");
-    ft2Td.textContent = (r.areaM2 * M2_TO_FT2).toFixed(2);
-
     const delTd = document.createElement("td");
     const delBtn = document.createElement("button");
     delBtn.className = "del-btn";
@@ -615,31 +231,32 @@ function updateResultsTable() {
     tr.appendChild(nameTd);
     tr.appendChild(pageTd);
     tr.appendChild(m2Td);
-    tr.appendChild(ft2Td);
     tr.appendChild(delTd);
     resultsBody.appendChild(tr);
   });
 
   totalM2El.innerHTML = `<strong>${totalM2.toFixed(2)}</strong>`;
-  totalFt2El.innerHTML = `<strong>${(totalM2 * M2_TO_FT2).toFixed(2)}</strong>`;
 }
 
+// Room deletion/clearing is asked of the open dialog (if any) so its traced
+// outline disappears from the overlay too, rather than just vanishing from
+// this table while a stale shape lingers in the pop-up.
 function removeRoom(id) {
+  if (currentDialog) {
+    currentDialog.messageChild(JSON.stringify({ type: "removeRoom", id }));
+    return;
+  }
   rooms = rooms.filter((r) => r.id !== id);
-  Object.values(pageGeometry).forEach((geo) => {
-    geo.rooms = geo.rooms.filter((r) => r.id !== id);
-  });
   updateResultsTable();
-  redrawOverlay();
 }
 
 copyResultsBtn.addEventListener("click", () => {
-  let text = "Room\tPage\tm²\tft²\n";
+  let text = "Room\tPage\tm²\n";
   rooms.forEach((r) => {
-    text += `${r.name}\t${r.page}\t${r.areaM2.toFixed(2)}\t${(r.areaM2 * M2_TO_FT2).toFixed(2)}\n`;
+    text += `${r.name}\t${r.page}\t${r.areaM2.toFixed(2)}\n`;
   });
   const totalM2 = rooms.reduce((s, r) => s + r.areaM2, 0);
-  text += `Total\t\t${totalM2.toFixed(2)}\t${(totalM2 * M2_TO_FT2).toFixed(2)}\n`;
+  text += `Total\t\t${totalM2.toFixed(2)}\n`;
 
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(
@@ -660,11 +277,11 @@ function showCopyFallback(text) {
 }
 
 clearAllBtn.addEventListener("click", () => {
+  if (currentDialog) {
+    currentDialog.messageChild(JSON.stringify({ type: "clear" }));
+    return;
+  }
   rooms = [];
-  nextRoomId = 1;
-  pageGeometry = {};
-  resetToolState();
   updateResultsTable();
-  redrawOverlay();
   setStatus("Cleared all rooms and scale settings on every page.");
 });
