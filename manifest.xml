@@ -17,7 +17,7 @@
 
   <!-- Hosted via GitHub Pages at https://shop-star.github.io/falcon-outlook-addin -->
   <IconUrl DefaultValue="https://shop-star.github.io/falcon-outlook-addin/assets/icon-32.png" />
-  <HighResIconUrl DefaultValue="https://shop-star.github.io/falcon-outlook-addin/assets/icon-80.png" />
+  <HighResolutionIconUrl DefaultValue="https://shop-star.github.io/falcon-outlook-addin/assets/icon-80.png" />
   <SupportUrl DefaultValue="https://shop-star.github.io/falcon-outlook-addin" />
 
   <AppDomains>
