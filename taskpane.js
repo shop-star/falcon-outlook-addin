@@ -27,6 +27,11 @@ function loadPdfJs() {
       mod.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs?v=__CACHEBUST__";
       pdfjsLib = mod;
       return mod;
+    }).catch((err) => {
+      // Don't memoize a failure — a transient error shouldn't permanently
+      // block every future retry with a stale cached rejection.
+      pdfjsLoadPromise = null;
+      throw err;
     });
   }
   return pdfjsLoadPromise;
@@ -161,13 +166,20 @@ function loadAttachments() {
   });
 }
 
+// Dev tools/Inspect Element are unreliable in some Outlook clients (notably
+// New Outlook for Mac), so error text needs to be readable directly from
+// the status bar rather than assuming anyone can open a console.
+function describeError(err) {
+  if (!err) return "unknown error";
+  const name = err.name || "Error";
+  const message = err.message || String(err);
+  return `${name}: ${message}`;
+}
+
 function openAttachment(att) {
   setStatus(`Loading "${att.name}"…`);
-  loadPdfJs().catch(() => {
-    setStatus(
-      "Couldn't load the PDF viewer library. Try reloading the add-in.",
-      true
-    );
+  loadPdfJs().catch((err) => {
+    setStatus("Couldn't load the PDF viewer library — " + describeError(err), true);
   });
   Office.context.mailbox.item.getAttachmentContentAsync(att.id, (result) => {
     if (result.status !== Office.AsyncResultStatus.Succeeded) {
@@ -203,17 +215,14 @@ function openAttachment(att) {
               updateResultsTable();
               setStatus(`Loaded "${att.name}". Set the scale, then trace each room.`);
             },
-            (err) => setStatus("Couldn't open this PDF: " + err.message, true)
+            (err) => setStatus("Couldn't open this PDF — " + describeError(err), true)
           );
         } catch (e) {
-          setStatus("Couldn't decode this attachment as a PDF.", true);
+          setStatus("Couldn't decode this attachment as a PDF — " + describeError(e), true);
         }
       },
-      () => {
-        setStatus(
-          "Couldn't load the PDF viewer library. Try reloading the add-in.",
-          true
-        );
+      (err) => {
+        setStatus("Couldn't load the PDF viewer library — " + describeError(err), true);
       }
     );
   });
