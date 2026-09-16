@@ -263,6 +263,15 @@ function base64ToUint8Array(base64) {
 }
 
 // ---- Rendering --------------------------------------------------------
+// A mouse-wheel zoom gesture fires many events in quick succession, each
+// calling renderPage() — pdf.js refuses to start a render() on a canvas
+// that still has one in flight ("Cannot use the same canvas during
+// multiple render() operations"), so the previous render task is
+// cancelled first. A cancelled render's promise rejects with
+// RenderingCancelledException, which is expected/harmless here, not a
+// real error to report.
+let currentRenderTask = null;
+
 // onResized, if given, runs right after the canvas is resized to the new
 // scale but before the (async) redraw — used by wheel-zoom to restore the
 // scroll position so the point under the cursor stays put.
@@ -275,9 +284,22 @@ function renderPage(onResized) {
 
     if (onResized) onResized();
 
-    page.render({ canvasContext: pdfCtx, viewport }).promise.then(() => {
-      redrawOverlay();
-    });
+    if (currentRenderTask) {
+      currentRenderTask.cancel();
+    }
+    currentRenderTask = page.render({ canvasContext: pdfCtx, viewport });
+    currentRenderTask.promise.then(
+      () => {
+        currentRenderTask = null;
+        redrawOverlay();
+      },
+      (err) => {
+        currentRenderTask = null;
+        if (err && err.name === "RenderingCancelledException") return;
+        setStatus("Couldn't render this page — " + describeError(err), true);
+        notifyParentError("Couldn't render this page — " + describeError(err));
+      }
+    );
 
     pageIndicatorEl.textContent = `Page ${currentPageNum} / ${currentPdf.numPages}`;
     zoomIndicatorEl.textContent = `${Math.round(renderScale / 1.5 * 100)}%`;
