@@ -4,10 +4,27 @@
  * client-side in the task pane; nothing is uploaded anywhere.
  */
 
-import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289/pdf.min.mjs";
+// pdf.js is loaded lazily (see loadPdfJs below) rather than imported at the
+// top of this module: a static top-level import that fails to fetch (a
+// blocked CDN, a network hiccup) would throw before Office.onReady ever
+// gets registered, silently freezing the whole task pane on its initial
+// "Looking for PDF attachments…" state with no visible error.
+let pdfjsLib = null;
+let pdfjsLoadPromise = null;
 
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289/pdf.worker.min.mjs";
+function loadPdfJs() {
+  if (!pdfjsLoadPromise) {
+    pdfjsLoadPromise = import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289/pdf.min.mjs").then(
+      (mod) => {
+        mod.GlobalWorkerOptions.workerSrc =
+          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.3.289/pdf.worker.min.mjs";
+        pdfjsLib = mod;
+        return mod;
+      }
+    );
+  }
+  return pdfjsLoadPromise;
+}
 
 const UNIT_TO_M = { mm: 0.001, cm: 0.01, m: 1, ft: 0.3048, in: 0.0254 };
 const M2_TO_FT2 = 10.76391;
@@ -73,12 +90,26 @@ const clearAllBtn = document.getElementById("clearAllBtn");
 const copyFallback = document.getElementById("copyFallback");
 
 // ---- Office.js bootstrap ------------------------------------------------
+// Surface any otherwise-silent script error in the status bar instead of
+// leaving the task pane stuck on its initial static text with no clue why.
+window.addEventListener("error", (evt) => {
+  setStatus("Something went wrong: " + (evt.message || evt.error), true);
+});
+window.addEventListener("unhandledrejection", (evt) => {
+  const reason = evt.reason && evt.reason.message ? evt.reason.message : evt.reason;
+  setStatus("Something went wrong: " + reason, true);
+});
+
 Office.onReady((info) => {
-  if (info.host !== Office.HostType.Outlook) {
-    setStatus("This add-in only works inside Outlook.");
-    return;
+  try {
+    if (info.host !== Office.HostType.Outlook) {
+      setStatus("This add-in only works inside Outlook.");
+      return;
+    }
+    loadAttachments();
+  } catch (e) {
+    setStatus("Failed to start: " + e.message, true);
   }
-  loadAttachments();
 });
 
 function setStatus(msg, isError) {
@@ -126,6 +157,12 @@ function loadAttachments() {
 
 function openAttachment(att) {
   setStatus(`Loading "${att.name}"…`);
+  loadPdfJs().catch(() => {
+    setStatus(
+      "Couldn't load the PDF viewer library from its CDN. Check your network/proxy allows cdnjs.cloudflare.com, then try again.",
+      true
+    );
+  });
   Office.context.mailbox.item.getAttachmentContentAsync(att.id, (result) => {
     if (result.status !== Office.AsyncResultStatus.Succeeded) {
       setStatus(
@@ -141,28 +178,38 @@ function openAttachment(att) {
       setStatus("Unexpected attachment format — couldn't read this file as a PDF.", true);
       return;
     }
-    try {
-      const bytes = base64ToUint8Array(content);
-      pdfjsLib.getDocument({ data: bytes }).promise.then(
-        (pdf) => {
-          currentPdf = pdf;
-          currentPageNum = 1;
-          pageGeometry = {};
-          rooms = [];
-          nextRoomId = 1;
-          renderScale = 1.5;
-          viewerSectionEl.hidden = false;
-          resultsSectionEl.hidden = false;
-          resetToolState();
-          renderPage();
-          updateResultsTable();
-          setStatus(`Loaded "${att.name}". Set the scale, then trace each room.`);
-        },
-        (err) => setStatus("Couldn't open this PDF: " + err.message, true)
-      );
-    } catch (e) {
-      setStatus("Couldn't decode this attachment as a PDF.", true);
-    }
+    loadPdfJs().then(
+      () => {
+        try {
+          const bytes = base64ToUint8Array(content);
+          pdfjsLib.getDocument({ data: bytes }).promise.then(
+            (pdf) => {
+              currentPdf = pdf;
+              currentPageNum = 1;
+              pageGeometry = {};
+              rooms = [];
+              nextRoomId = 1;
+              renderScale = 1.5;
+              viewerSectionEl.hidden = false;
+              resultsSectionEl.hidden = false;
+              resetToolState();
+              renderPage();
+              updateResultsTable();
+              setStatus(`Loaded "${att.name}". Set the scale, then trace each room.`);
+            },
+            (err) => setStatus("Couldn't open this PDF: " + err.message, true)
+          );
+        } catch (e) {
+          setStatus("Couldn't decode this attachment as a PDF.", true);
+        }
+      },
+      () => {
+        setStatus(
+          "Couldn't load the PDF viewer library from its CDN. Check your network/proxy allows cdnjs.cloudflare.com, then try again.",
+          true
+        );
+      }
+    );
   });
 }
 
