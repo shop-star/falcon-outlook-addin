@@ -1070,13 +1070,31 @@ function resetPreparedDownload() {
 
 downloadPdfBtn.addEventListener("click", () => {
   if (downloadPhase === "ready" && preparedDownload) {
+    // The two-click fix (making sure this runs with no async work in a
+    // fresh user gesture) didn't get an actual download out of Outlook's
+    // dialog WebView either, which points to something more fundamental:
+    // the host app likely just hasn't wired up download handling for its
+    // embedded webview at all (a known WKWebView gap — apps have to opt
+    // into WKDownloadDelegate support themselves, and Office Add-in
+    // dialogs are an unusual place to have bothered). window.open() on the
+    // PDF is a different code path — it hands off to WebKit's own built-in
+    // native PDF viewer (the same thing that renders a bare PDF URL in
+    // Safari), which doesn't depend on the host supporting downloads at
+    // all and carries its own native save/share controls. Also still try
+    // the anchor click alongside it, in case that one only needed this
+    // fresh a gesture and the earlier test caught a transient issue.
+    const opened = window.open(preparedDownload.url, "_blank");
     const a = document.createElement("a");
     a.href = preparedDownload.url;
     a.download = preparedDownload.filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setStatus("Downloaded PDF with room data.");
+    setStatus(
+      opened
+        ? "Opened the PDF — use its own save/share button if it didn't download automatically."
+        : "Downloaded PDF with room data (or check for a new window if not)."
+    );
     return;
   }
 
