@@ -8,25 +8,47 @@
 // rather than pulled from a public CDN: some corporate networks block
 // CDN domains like cdnjs.cloudflare.com from inside the Outlook webview,
 // which silently broke PDF loading even though the add-in itself loaded
-// fine (it's served from the same origin we already trust). It's also
-// loaded lazily, only when a PDF is actually opened, rather than via a
-// static top-level import: a failing top-level import would throw before
-// Office.onReady ever gets registered, freezing the whole task pane on
-// its initial "Looking for PDF attachments…" state with no visible error.
+// fine (it's served from the same origin we already trust).
+//
+// It's pdf.js 3.11.174 rather than a newer release: newer major versions
+// (and even their "legacy" compatibility builds) rely on JS engine
+// features that Outlook for Mac's older embedded WebKit doesn't have yet
+// (hit both "Can't find variable: Iterator" and a temporal-dead-zone
+// "Cannot access uninitialized variable" error from two different newer
+// pdf.js releases before landing on this well-established version).
+//
+// It's also a classic UMD script (sets window.pdfjsLib), not an ES
+// module — 3.x predates pdf.js publishing .mjs builds — so it's loaded
+// via a plain <script> tag rather than dynamic import(), which is a far
+// older and more universally-supported loading mechanism.
+//
+// Loading is lazy (only when a PDF is actually opened) and happens after
+// Office.onReady rather than blocking it, so a load failure here can
+// never freeze the rest of the task pane.
 let pdfjsLib = null;
 let pdfjsLoadPromise = null;
 
 // The __CACHEBUST__ query string is substituted with the deploy commit SHA
 // at publish time (see .github/workflows/deploy-pages.yml), so every new
 // deploy fetches fresh files instead of reusing whatever Outlook's webview
-// cached from a previous version — the exact issue that made this fix look
-// like it hadn't been applied at all.
+// cached from a previous version — the exact issue that made an earlier
+// fix look like it hadn't been applied at all.
 function loadPdfJs() {
   if (!pdfjsLoadPromise) {
-    pdfjsLoadPromise = import("./vendor/pdfjs/pdf.min.mjs?v=__CACHEBUST__").then((mod) => {
-      mod.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs?v=__CACHEBUST__";
-      pdfjsLib = mod;
-      return mod;
+    pdfjsLoadPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "./vendor/pdfjs/pdf.min.js?v=__CACHEBUST__";
+      script.onload = () => {
+        if (!window.pdfjsLib) {
+          reject(new Error("pdf.min.js loaded but window.pdfjsLib was not set"));
+          return;
+        }
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.js?v=__CACHEBUST__";
+        pdfjsLib = window.pdfjsLib;
+        resolve(pdfjsLib);
+      };
+      script.onerror = () => reject(new Error("Failed to load pdf.min.js"));
+      document.head.appendChild(script);
     }).catch((err) => {
       // Don't memoize a failure — a transient error shouldn't permanently
       // block every future retry with a stale cached rejection.

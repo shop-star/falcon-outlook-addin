@@ -37,7 +37,7 @@ If you'd rather use a different host, just make sure the same files
 end up reachable at `<base-url>/taskpane.html`,
 `<base-url>/taskpane.css`, `<base-url>/taskpane.js`,
 `<base-url>/assets/icon-16.png` (etc), and
-`<base-url>/vendor/pdfjs/pdf.min.mjs` (and `pdf.worker.min.mjs`) — the PDF
+`<base-url>/vendor/pdfjs/pdf.min.js` (and `pdf.worker.min.js`) — the PDF
 viewer library is hosted alongside the add-in itself rather than pulled
 from a public CDN, since some corporate networks block CDN domains from
 inside the Outlook add-in sandbox.
