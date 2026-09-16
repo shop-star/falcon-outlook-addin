@@ -126,13 +126,9 @@ Reopening the same email later, even on a different device, brings your
 progress back exactly where you left it. **Clear all** wipes this saved
 progress too, so use it when you actually want to start over.
 
-Use **Download PDF with room data** in the task pane to export a copy of
-the plan with the traced outlines and areas drawn directly onto the pages
-(visible in any ordinary PDF viewer, no add-in required) and the underlying
-scale/room data embedded as a file attachment inside the PDF itself. If you
-attach that downloaded copy to an email and open it with this add-in again,
-it's detected automatically and restores the exact editable state — the
-PDF carries its own data, no separate file or database required.
+There's currently no way to export the traced plan or its room data out of
+the add-in — **Copy results** (step 5 above) is the only way to get your
+numbers out, as a tab-separated list you can paste into Excel or a quote.
 
 ## Limitations to know about
 

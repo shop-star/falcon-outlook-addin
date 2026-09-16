@@ -27,11 +27,10 @@ jobs:
 
       - name: Stage site files
         run: |
-          mkdir -p _site/assets _site/vendor/pdfjs _site/vendor/pdf-lib
+          mkdir -p _site/assets _site/vendor/pdfjs
           cp manifest.xml taskpane.html taskpane.css taskpane.js viewer.html viewer.css viewer.js _site/
           cp assets/*.png _site/assets/
           cp vendor/pdfjs/*.js _site/vendor/pdfjs/
-          cp vendor/pdf-lib/*.js _site/vendor/pdf-lib/
           # Outlook's own add-in cache (separate from normal HTTP caching)
           # can hang onto old JS/CSS/pdf.js well past a reload, so every
           # deploy gets a distinct query string on these references — forces

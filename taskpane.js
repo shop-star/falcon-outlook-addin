@@ -37,15 +37,6 @@ const totalM2El = document.getElementById("totalM2");
 const copyResultsBtn = document.getElementById("copyResultsBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const copyFallback = document.getElementById("copyFallback");
-const downloadPdfBtn = document.getElementById("downloadPdfBtn");
-
-// ---- The one PDF download control lives here in the task pane. Clicking it
-// asks the open pop-up to build the annotated PDF (see viewer.js's
-// buildAndSendDownload), which sends the finished bytes back over the same
-// chunked, ack-based transfer already proven reliable for the original PDF
-// content (see viewer.js's sendPdfToTaskPane).
-let incomingDownload = null; // { fileName, total, totalLength, parts, receivedCount }
-let preparedTaskPaneDownload = null; // { url, base64, filename }, once ready to click
 
 // ---- Office.js bootstrap ------------------------------------------------
 // Surface any otherwise-silent script error in the status bar instead of
@@ -198,8 +189,6 @@ function openAttachment(att) {
     viewerFileNameEl.textContent = att.name;
     viewerSectionEl.hidden = false;
     resultsSectionEl.hidden = false;
-    resetPreparedTaskPaneDownload();
-    downloadPdfBtn.hidden = false;
     openViewerDialog(att.name, content);
   });
 }
@@ -256,10 +245,6 @@ function handleDialogMessage(dialog, arg, fileName, base64Content) {
   } else if (msg.type === "state") {
     rooms = msg.rooms || [];
     updateResultsTable();
-    // Any state change invalidates an already-prepared download — otherwise
-    // a further edit after "Preparing…" finishes could hand out a save link
-    // for a PDF that no longer matches what's on screen.
-    resetPreparedTaskPaneDownload();
     if (lastOpenedAttachment) {
       lastOpenedAttachment.geometry = msg.geometry || {};
       lastOpenedAttachment.nextRoomId = msg.nextRoomId || 1;
@@ -269,17 +254,6 @@ function handleDialogMessage(dialog, arg, fileName, base64Content) {
       };
       persistSavedState();
     }
-  } else if (msg.type === "downloadStart") {
-    incomingDownload = {
-      fileName: msg.fileName,
-      total: msg.total,
-      totalLength: msg.totalLength,
-      parts: new Array(msg.total),
-      receivedCount: 0,
-    };
-    setStatus(`Receiving "${msg.fileName}" from the plan viewer…`);
-  } else if (msg.type === "downloadChunk") {
-    handleIncomingDownloadChunk(dialog, msg);
   } else if (msg.type === "error") {
     setStatus("Plan viewer — " + msg.message, true);
   } else if (msg.type === "closeRequest") {
@@ -346,85 +320,6 @@ function handleDialogEvent(arg) {
     setStatus("Plan viewer window closed.");
   }
 }
-
-// Mirrors viewer.js's own "chunk" handling for the original (parent-to-
-// child) PDF transfer — same corruption-avoidance measures, just in the
-// other direction: URL-decode each chunk, track completeness with an
-// explicit counter rather than relying on sparse-array iteration.
-function handleIncomingDownloadChunk(dialog, msg) {
-  if (!incomingDownload) return;
-  if (msg.data.length !== msg.len) {
-    setStatus(`Chunk ${msg.index} of the finished PDF arrived corrupted.`, true);
-    incomingDownload = null;
-    return;
-  }
-  let rawChunk;
-  try {
-    rawChunk = decodeURIComponent(msg.data);
-  } catch (e) {
-    setStatus(`Chunk ${msg.index} of the finished PDF couldn't be decoded.`, true);
-    incomingDownload = null;
-    return;
-  }
-  if (incomingDownload.parts[msg.index] === undefined) {
-    incomingDownload.receivedCount += 1;
-  }
-  incomingDownload.parts[msg.index] = rawChunk;
-  dialog.messageChild(JSON.stringify({ type: "downloadChunkAck", index: msg.index }));
-
-  if (incomingDownload.receivedCount === incomingDownload.total) {
-    const { fileName, totalLength, parts } = incomingDownload;
-    const base64 = parts.join("");
-    incomingDownload = null;
-    if (base64.length !== totalLength) {
-      setStatus("The finished PDF was corrupted in transit — try again.", true);
-      return;
-    }
-    presentTaskPaneDownload(base64, fileName);
-  }
-}
-
-function presentTaskPaneDownload(base64, filename) {
-  resetPreparedTaskPaneDownload();
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const blob = new Blob([bytes], { type: "application/pdf" });
-  preparedTaskPaneDownload = { url: URL.createObjectURL(blob), filename };
-  // A real, visible link the user clicks themselves — every download that
-  // used a JS-synthesized click() (in both the task pane and the pop-up)
-  // silently did nothing, while a plain human click on a real <a href>
-  // worked. No script ever calls .click() on this element; the click that
-  // gets it to the user's disk is genuinely theirs.
-  downloadPdfBtn.href = preparedTaskPaneDownload.url;
-  downloadPdfBtn.download = filename;
-  downloadPdfBtn.textContent = `Save "${filename}"`;
-  setStatus(`"${filename}" is ready — click "Save ${filename}" below to download it.`);
-}
-
-function resetPreparedTaskPaneDownload() {
-  if (!preparedTaskPaneDownload) return;
-  URL.revokeObjectURL(preparedTaskPaneDownload.url);
-  preparedTaskPaneDownload = null;
-  downloadPdfBtn.removeAttribute("href");
-  downloadPdfBtn.textContent = "Download PDF with room data";
-}
-
-// Two states behind one button: an idle click asks the open pop-up to build
-// the annotated PDF (buildAndSendDownload in viewer.js) and just waits — the
-// resulting real <a href>, set by presentTaskPaneDownload once the bytes
-// arrive, is what a second, genuine click actually downloads.
-downloadPdfBtn.addEventListener("click", (evt) => {
-  if (preparedTaskPaneDownload) return; // real download click — let it navigate
-  evt.preventDefault();
-  if (!currentDialog) {
-    setStatus('Reopen the plan viewer window first, then click "Download PDF" again.', true);
-    return;
-  }
-  downloadPdfBtn.textContent = "Preparing…";
-  setStatus("Preparing PDF with room data…");
-  currentDialog.messageChild(JSON.stringify({ type: "buildDownload" }));
-});
 
 reopenViewerBtn.addEventListener("click", () => {
   if (!lastOpenedAttachment) return;

@@ -7,24 +7,6 @@
  * after every change so its results table stays in sync live.
  */
 
-function withTimeout(promise, ms, label) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`));
-    }, ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      }
-    );
-  });
-}
-
 // Same self-hosted, older pdf.js build as previously used successfully in
 // the task pane (see taskpane.js for why: newer releases, even their
 // "legacy" compatibility builds, hit JS-engine incompatibilities in
@@ -56,48 +38,12 @@ function loadPdfJs() {
   return pdfjsLoadPromise;
 }
 
-// pdf.js only reads PDFs — pdf-lib is the write side, used to embed the room
-// data and burn the traced outlines into a downloadable copy. Self-hosted
-// for the same reason as pdf.js (see above): CDN domains get blocked on
-// some corporate networks this add-in runs on.
-let pdfLib = null;
-let pdfLibLoadPromise = null;
-
-function loadPdfLib() {
-  if (!pdfLibLoadPromise) {
-    pdfLibLoadPromise = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "./vendor/pdf-lib/pdf-lib.min.js?v=__CACHEBUST__";
-      script.onload = () => {
-        if (!window.PDFLib) {
-          reject(new Error("pdf-lib.min.js loaded but window.PDFLib was not set"));
-          return;
-        }
-        pdfLib = window.PDFLib;
-        resolve(pdfLib);
-      };
-      script.onerror = () => reject(new Error("Failed to load pdf-lib.min.js"));
-      document.head.appendChild(script);
-    }).catch((err) => {
-      pdfLibLoadPromise = null;
-      throw err;
-    });
-  }
-  return pdfLibLoadPromise;
-}
-
 const UNIT_TO_M = { mm: 0.001, cm: 0.01, m: 1, ft: 0.3048, in: 0.0254 };
 
 // ---- State -----------------------------------------------------------
 let currentPdf = null;
 let currentPageNum = 1;
 let renderScale = 1.5;
-
-// Kept separately from whatever pdf.js does with its own copy of the bytes
-// (getDocument() can transfer/detach the buffer it's given) so "Download
-// PDF" always has a pristine, untouched original to build from.
-let originalBase64Content = null;
-let currentFileName = "floor-plan.pdf";
 
 /** pageGeometry[pageNum] = { calibration: {p1,p2,metersPerUnit,label} | null, rooms: [{id,name,points}] } */
 let pageGeometry = {};
@@ -243,7 +189,6 @@ function onParentMessage(arg) {
       receivedCount: 0,
     };
     fileNameHeadingEl.textContent = msg.fileName || "Floor plan";
-    currentFileName = msg.fileName || "floor-plan.pdf";
     setStatus(`Loading "${msg.fileName}"…`);
   } else if (msg.type === "chunk") {
     if (!incomingChunks) return;
@@ -305,13 +250,6 @@ function onParentMessage(arg) {
     removeRoom(msg.id);
   } else if (msg.type === "clear") {
     clearAll();
-  } else if (msg.type === "buildDownload") {
-    buildAndSendDownload();
-  } else if (msg.type === "downloadChunkAck") {
-    if (pendingDownloadSend && msg.index === pendingDownloadSend.nextIndex) {
-      pendingDownloadSend.nextIndex += 1;
-      sendNextDownloadChunk();
-    }
   } else if (msg.type === "restoreGeometry") {
     if (currentPdf) {
       applyRestoredGeometry(msg.geometry, msg.nextRoomId);
@@ -354,7 +292,6 @@ function applyRestoredGeometry(geometry, nextId) {
 }
 
 function openPdfFromBase64(fileName, base64Content) {
-  originalBase64Content = base64Content;
   loadPdfJs().then(
     () => {
       try {
@@ -376,31 +313,6 @@ function openPdfFromBase64(fileName, base64Content) {
               const restore = pendingRestoreGeometry;
               pendingRestoreGeometry = null;
               applyRestoredGeometry(restore.geometry, restore.nextRoomId);
-            } else {
-              // No progress already known for this attachment (from this
-              // session or the email's saved state) — check whether the
-              // file itself is a previously-downloaded round-trip copy that
-              // has its own embedded scale/room data, and restore from that
-              // if so. Guarded on pageGeometry still being empty so this
-              // never clobbers a restore that arrives in the moment between
-              // this check and that promise settling.
-              pdf.getAttachments().then(
-                (attachments) => {
-                  const embedded = attachments && attachments["floor-area-takeoff.json"];
-                  if (!embedded || !embedded.content) return;
-                  if (Object.keys(pageGeometry).length > 0) return;
-                  try {
-                    const parsed = JSON.parse(new TextDecoder().decode(embedded.content));
-                    if (parsed && parsed.pageGeometry && Object.keys(parsed.pageGeometry).length > 0) {
-                      applyRestoredGeometry(parsed.pageGeometry, parsed.nextRoomId);
-                    }
-                  } catch (e) {
-                    // Not our own embedded data, or corrupted — ignore, the
-                    // PDF still opens normally either way.
-                  }
-                },
-                () => {}
-              );
             }
           },
           (err) => {
@@ -428,48 +340,6 @@ function base64ToUint8Array(base64) {
   return bytes;
 }
 
-function uint8ArrayToBase64(bytes) {
-  // String.fromCharCode.apply on the whole array at once can blow the call
-  // stack for a multi-MB PDF — build it up in smaller pieces instead.
-  let binary = "";
-  const pieceSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += pieceSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + pieceSize));
-  }
-  return btoa(binary);
-}
-
-// ---- Sending the finished PDF to the task pane ----------------------------
-// Mirrors the task pane's own chunked, ack-based send of the original PDF
-// (see taskpane.js) in reverse — same reasoning: no documented size/rate
-// limit for cross-window Office.js messages, and firing one big message
-// produced silent corruption in testing for the original transfer.
-const DOWNLOAD_CHUNK_SIZE = 50000;
-let pendingDownloadSend = null; // { base64, total, nextIndex }
-
-function sendPdfToTaskPane(bytes, filename) {
-  const base64 = uint8ArrayToBase64(bytes);
-  const total = Math.max(1, Math.ceil(base64.length / DOWNLOAD_CHUNK_SIZE));
-  pendingDownloadSend = { base64, total, nextIndex: 0 };
-  Office.context.ui.messageParent(
-    JSON.stringify({ type: "downloadStart", fileName: filename, total, totalLength: base64.length })
-  );
-  sendNextDownloadChunk();
-}
-
-function sendNextDownloadChunk() {
-  if (!pendingDownloadSend) return;
-  const { base64, total, nextIndex } = pendingDownloadSend;
-  if (nextIndex >= total) {
-    pendingDownloadSend = null;
-    return;
-  }
-  const rawChunk = base64.slice(nextIndex * DOWNLOAD_CHUNK_SIZE, (nextIndex + 1) * DOWNLOAD_CHUNK_SIZE);
-  const encoded = encodeURIComponent(rawChunk);
-  Office.context.ui.messageParent(
-    JSON.stringify({ type: "downloadChunk", index: nextIndex, data: encoded, len: encoded.length })
-  );
-}
 
 // ---- Rendering --------------------------------------------------------
 // A mouse-wheel zoom gesture fires many events in quick succession, each
@@ -1021,103 +891,6 @@ function clearAll() {
   redrawOverlay();
   notifyParentState();
   setStatus("Cleared all rooms and scale settings on every page.");
-}
-
-// ---- Download PDF with room data embedded ----------------------------------
-// Builds a modified copy of the original PDF — never the in-memory copy
-// pdf.js is using, since getDocument() can transfer/detach that buffer —
-// with two things added: the raw geometry as a JSON file attachment (so
-// this tool, or a future companion web app, can restore the exact editable
-// state from the file alone, no separate storage needed) and the traced
-// outlines/labels drawn directly onto the pages (so the measurements are
-// visible in any ordinary PDF viewer, not just here).
-function suggestDownloadName(name) {
-  const base = (name || "floor-plan").replace(/\.pdf$/i, "");
-  return `${base}-with-rooms.pdf`;
-}
-
-async function buildAnnotatedPdfBytes() {
-  const lib = await loadPdfLib();
-  const bytes = base64ToUint8Array(originalBase64Content);
-  const pdfDoc = await lib.PDFDocument.load(bytes);
-
-  const geometryJson = JSON.stringify({ pageGeometry, nextRoomId }, null, 2);
-  await pdfDoc.attach(new TextEncoder().encode(geometryJson), "floor-area-takeoff.json", {
-    mimeType: "application/json",
-    description: "Floor Area Takeoff — scale calibration and traced room outlines",
-  });
-
-  const pdfLibPages = pdfDoc.getPages();
-  const font = await pdfDoc.embedFont(lib.StandardFonts.Helvetica);
-  const outlineColor = lib.rgb(0.08, 0.4, 0.36);
-
-  for (const pageNumKey of Object.keys(pageGeometry)) {
-    const pageNum = Number(pageNumKey);
-    const geo = pageGeometry[pageNum];
-    if (!geo.rooms || geo.rooms.length === 0) continue;
-    if (pageNum < 1 || pageNum > pdfLibPages.length) continue;
-
-    const pdfLibPage = pdfLibPages[pageNum - 1];
-    // Our traced points are stored in pdf.js's scale-1 viewport space (see
-    // canvasPointFromEvent) — convertToPdfPoint maps that back to the PDF's
-    // own coordinate space (bottom-left origin, and correctly accounting
-    // for page rotation), which is what pdf-lib's drawing calls expect.
-    const pdfjsPage = await currentPdf.getPage(pageNum);
-    const viewportAtScale1 = pdfjsPage.getViewport({ scale: 1 });
-
-    geo.rooms.forEach((room) => {
-      if (room.points.length < 3) return;
-      const pts = room.points.map((p) => {
-        const [x, y] = viewportAtScale1.convertToPdfPoint(p[0], p[1]);
-        return { x, y };
-      });
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[i];
-        const b = pts[(i + 1) % pts.length];
-        pdfLibPage.drawLine({ start: a, end: b, thickness: 1.5, color: outlineColor });
-      }
-      const cx = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
-      const cy = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
-      const flatRoom = rooms.find((r) => r.id === room.id);
-      const label = flatRoom ? `${room.name} — ${flatRoom.areaM2.toFixed(2)} m²` : room.name;
-      pdfLibPage.drawText(label, {
-        x: cx - (label.length * 2.3),
-        y: cy,
-        size: 9,
-        font,
-        color: outlineColor,
-      });
-    });
-  }
-
-  return pdfDoc.save();
-}
-
-// There's a single download control, and it lives in the task pane, not
-// here — the pop-up is just where the plan gets viewed and traced. The
-// task pane asks this window to build the annotated PDF (a "buildDownload"
-// message, handled in onParentMessage) and this window sends the finished
-// bytes back over sendPdfToTaskPane, the same chunked transfer already used
-// for the original PDF content.
-function buildAndSendDownload() {
-  if (!currentPdf || !originalBase64Content) return;
-
-  setStatus("Preparing PDF with room data…");
-  // If something in here hangs silently instead of rejecting (seen before
-  // in this environment — e.g. a script tag whose load/error events never
-  // fire), there would otherwise be no way to tell what went wrong. A hard
-  // timeout guarantees a visible error.
-  withTimeout(buildAnnotatedPdfBytes(), 20000, "Building the PDF").then(
-    (bytes) => {
-      const filename = suggestDownloadName(currentFileName);
-      setStatus(`"${filename}" is ready in the task pane.`);
-      sendPdfToTaskPane(bytes, filename);
-    },
-    (err) => {
-      setStatus("Couldn't build the PDF download — " + describeError(err), true);
-      notifyParentError("Couldn't build the PDF download — " + describeError(err));
-    }
-  );
 }
 
 // A dialog can't close itself: window.close() only works on windows opened
