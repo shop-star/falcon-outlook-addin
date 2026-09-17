@@ -71,6 +71,16 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
 #fromEmailAttachments li, #fromEmailLinks li { margin-bottom: 2px; word-break: break-all; }
 #fromEmailLinks a { color: var(--brand); }
 
+.paste-hint {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--brand);
+  border-radius: 4px;
+  background: #eef7f5;
+  color: var(--brand-dark);
+  font-size: 13px;
+}
+
 /* ---- File intake ---- */
 .drop-zone {
   border: 2px dashed var(--border);
