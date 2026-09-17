@@ -102,11 +102,6 @@ let traceTemp = { page: null, points: [] };
 let editingRoom = null; // room id, or null
 let vertexDragState = null; // { roomId, pointIndex, dragged }
 
-// The name of the attachment the launcher add-in put on the clipboard, if
-// any — used as the filename once a paste actually arrives (see the
-// "paste" listener near the file-intake code below).
-let pendingClipboardName = null;
-
 // ---- DOM refs ----------------------------------------------------------
 const statusBarEl = document.getElementById("statusBar");
 const fileNameHeadingEl = document.getElementById("fileNameHeading");
@@ -205,7 +200,6 @@ function initFromEmailPanel() {
   const subject = params.get("subject");
   const attachments = params.getAll("attachment").filter(Boolean);
   const links = params.getAll("link").filter((u) => /^https?:\/\//i.test(u));
-  const clipboardReady = params.get("clipboardReady");
 
   if (!subject && attachments.length === 0 && links.length === 0) return;
   fromEmailPanel.hidden = false;
@@ -215,19 +209,7 @@ function initFromEmailPanel() {
     fromEmailSubjectEl.hidden = false;
   }
 
-  // The launcher add-in only puts a plan on the clipboard when it's the
-  // sole plan-like attachment (see commands.js) — so if this is set, the
-  // one entry in `attachments` is already covered by it, nothing more to
-  // list. Multiple attachments always fall through to the plain list below,
-  // since there'd be no way to guess which one was meant.
-  if (clipboardReady) {
-    pendingClipboardName = clipboardReady;
-    const note = document.createElement("p");
-    note.className = "paste-hint";
-    const modifier = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? "Cmd" : "Ctrl";
-    note.textContent = `"${clipboardReady}" is ready on your clipboard — click anywhere on this page, then press ${modifier}+V to load it.`;
-    fromEmailAttachmentsEl.appendChild(note);
-  } else if (attachments.length > 0) {
+  if (attachments.length > 0) {
     const intro = document.createElement("p");
     intro.className = "muted";
     intro.textContent = "Attachments on that email — save them from Outlook, then drop them below:";
@@ -301,25 +283,15 @@ function handleFile(file) {
 
 function handleZipFile(file) {
   setStatus(`Reading "${file.name}"…`);
-  file.arrayBuffer().then(
-    (buf) => openZipFromBytes(buf, file.name),
-    (err) => setStatus(`Couldn't read "${file.name}" — ` + describeError(err), true)
-  );
-}
-
-// Shared by drag-and-drop/file-picker zips (handleZipFile above) and a
-// pasted zip (see the "paste" listener below) — either way, the caller
-// already has the zip's raw bytes in hand.
-function openZipFromBytes(bytes, labelName) {
   loadJSZip()
-    .then((JSZipLib) => JSZipLib.loadAsync(bytes))
+    .then((JSZipLib) => file.arrayBuffer().then((buf) => JSZipLib.loadAsync(buf)))
     .then(
       (zip) => {
         const pdfEntries = Object.values(zip.files).filter(
           (f) => !f.dir && /\.pdf$/i.test(f.name)
         );
         if (pdfEntries.length === 0) {
-          setStatus(`No PDF files found inside "${labelName}".`, true);
+          setStatus(`No PDF files found inside "${file.name}".`, true);
           return;
         }
         if (pdfEntries.length === 1) {
@@ -328,7 +300,7 @@ function openZipFromBytes(bytes, labelName) {
         }
         showZipPicker(pdfEntries);
       },
-      (err) => setStatus(`Couldn't read "${labelName}" as a zip — ` + describeError(err), true)
+      (err) => setStatus(`Couldn't read "${file.name}" as a zip — ` + describeError(err), true)
     );
 }
 
@@ -353,46 +325,6 @@ function showZipPicker(entries) {
   });
   zipPicker.hidden = false;
   setStatus("That zip has more than one PDF — pick which one to open.");
-}
-
-// A single PDF/zip attachment can arrive via the clipboard instead of a
-// drag-and-drop — see commands.js's copyAttachmentToClipboard, which puts a
-// data: URI (carrying the file's own bytes) there when the launcher add-in
-// found exactly one plan-like attachment on the email. A real paste
-// keystroke is what's used to read it back, rather than the Clipboard
-// API's own readText() — that needs a permission grant that isn't
-// guaranteed here, while a paste event just arrives with the clipboard
-// contents attached, no extra permission dance.
-window.addEventListener("paste", (evt) => {
-  const target = evt.target;
-  if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
-
-  const text = (evt.clipboardData && evt.clipboardData.getData("text/plain")) || "";
-  const match = /^data:(application\/pdf|application\/zip);base64,([a-z0-9+/=]+)$/i.exec(text.trim());
-  if (!match) return;
-  evt.preventDefault();
-
-  const [, mimeType, base64] = match;
-  let bytes;
-  try {
-    bytes = base64ToUint8Array(base64);
-  } catch (e) {
-    setStatus("Couldn't read the pasted file — it doesn't look like valid data.", true);
-    return;
-  }
-  const label = pendingClipboardName || (mimeType === "application/zip" ? "pasted.zip" : "pasted.pdf");
-  if (mimeType === "application/zip") {
-    openZipFromBytes(bytes, label);
-  } else {
-    openPdfFromBytes(label, bytes);
-  }
-});
-
-function base64ToUint8Array(base64) {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-  return bytes;
 }
 
 // ---- 2. Opening a PDF -------------------------------------------------------

@@ -14,10 +14,7 @@ Two things live in this repo:
    `commands.js`) — adds a "Floor Areas" button to the ribbon when you're
    reading an email. Clicking it opens the app above in a real browser
    window, with the open email's subject, PDF/zip attachment names, and any
-   links found in its body carried over so you have a head start. If
-   there's exactly one plan-like attachment, its bytes go on your clipboard
-   too — the app picks that up from a paste, no manual save-then-drag
-   needed for the common case of one plan per email.
+   links found in its body carried over so you have a head start.
 
 Everything runs in your browser — a PDF is never uploaded anywhere. There's
 no subscription, no per-use cost, and no account to sign up for.
@@ -94,11 +91,9 @@ ribbon.
 1. Open the email with the plan attached, click **Floor Areas** in the
    ribbon — the app opens in a new browser tab, pre-filled with that
    email's subject, attachment names, and any links found in the body.
-2. If there was exactly one PDF/zip attachment, it's already on your
-   clipboard — click anywhere on the page and press Cmd/Ctrl+V to load it
-   straight away. Otherwise (several attachments, or you followed a link
-   instead), save the file from Outlook's own UI or the link, then drag it
-   into the app (or a zip containing it).
+2. Save the PDF attachment from Outlook's own UI (or download it from one
+   of the listed links), then drag it into the app (or a zip containing
+   it).
 3. Click **Set scale**, then click the two ends of a labelled dimension or
    the plan's scale bar, and enter its real length and unit when prompted.
 4. Click **Trace room**, click around a room's outline corner by corner,
@@ -131,16 +126,10 @@ want to start over.
 - Multi-page plans need the scale set separately on each page (a ground
   floor and first floor page are usually drawn at different points on the
   sheet, so we don't assume they share a scale).
-- The clipboard hand-off only ever covers **one** attachment (whichever is
-  the sole plan-like attachment on the email) and skips anything over 8MB
-  — ambiguous or oversized cases fall back to the plain name list, saved
-  and dragged in manually. Clipboard write from inside the add-in's launch
-  handler also depends on Outlook granting clipboard access at that point,
-  which hasn't been battle-tested across every Outlook build — if the hint
-  never shows up, the manual drag-and-drop path always works regardless.
-- Email *links* never carry any bytes — there's no built-in Dropbox/OneDrive
-  picker (yet), so links are just shown for a one-click open in your own
-  browser, where your existing login to that service applies normally, and
-  you still need to save the file from there and drop it into the app.
+- The add-in only ever passes along attachment *names* and email *links* —
+  never file bytes — so you still save/download the actual PDF yourself
+  and drop it into the app. There's no built-in Dropbox/OneDrive picker
+  (yet); links are just shown for a one-click open in your own browser,
+  where your existing login to that service applies normally.
 - If your organization has disabled add-in sideloading, you'll need your
   Microsoft 365 admin to deploy the manifest centrally (see note above).
