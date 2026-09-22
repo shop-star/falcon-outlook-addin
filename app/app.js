@@ -135,6 +135,10 @@ const undoPointBtn = document.getElementById("undoPointBtn");
 const finishRoomBtn = document.getElementById("finishRoomBtn");
 const cancelActionBtn = document.getElementById("cancelActionBtn");
 
+const scaleRatioForm = document.getElementById("scaleRatioForm");
+const scaleRatioInput = document.getElementById("scaleRatioInput");
+const scaleRatioConfirmBtn = document.getElementById("scaleRatioConfirmBtn");
+
 const calibrationForm = document.getElementById("calibrationForm");
 const calibLengthInput = document.getElementById("calibLengthInput");
 const calibUnitSelect = document.getElementById("calibUnitSelect");
@@ -523,7 +527,9 @@ function redrawOverlay() {
   overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
   const geo = currentGeometry();
 
-  if (geo.calibration) {
+  // A scale entered directly as a ratio (see scaleRatioConfirmBtn) has no
+  // drawn line to show — there's nothing clicked to draw.
+  if (geo.calibration && geo.calibration.p1 && geo.calibration.p2) {
     drawLine(geo.calibration.p1, geo.calibration.p2, "#e07b00", 2, true, geo.calibration.label);
   }
   if (mode === "calibrate" && calibTemp.p1) {
@@ -550,9 +556,12 @@ function redrawOverlay() {
   setScaleBtn.textContent = geo.calibration ? "Re-set scale" : "Set scale";
   if (geo.calibration) {
     scaleInfoEl.hidden = false;
-    scaleInfoEl.textContent = `Scale on this page: ${geo.calibration.label} = ${geo.calibration.pixelDist.toFixed(
-      1
-    )} plan units (1 unit ≈ ${(geo.calibration.metersPerUnit * 1000).toFixed(2)} mm).`;
+    const mmPerUnit = (geo.calibration.metersPerUnit * 1000).toFixed(2);
+    scaleInfoEl.textContent = geo.calibration.pixelDist
+      ? `Scale on this page: ${geo.calibration.label} = ${geo.calibration.pixelDist.toFixed(
+          1
+        )} plan units (1 unit ≈ ${mmPerUnit} mm).`
+      : `Scale on this page: ${geo.calibration.label} (1 unit ≈ ${mmPerUnit} mm).`;
   } else {
     scaleInfoEl.hidden = true;
   }
@@ -697,6 +706,7 @@ function resetToolState() {
   traceTemp = { page: null, points: [] };
   editingRoom = null;
   vertexDragState = null;
+  scaleRatioForm.hidden = true;
   calibrationForm.hidden = true;
   roomNameForm.hidden = true;
   undoPointBtn.hidden = true;
@@ -852,7 +862,10 @@ setScaleBtn.addEventListener("click", () => {
   resetToolState();
   mode = "calibrate";
   cancelActionBtn.hidden = false;
-  setStatus("Click one end of a known measurement on the plan (a scale bar or a labelled dimension).");
+  scaleRatioForm.hidden = false;
+  setStatus(
+    "Click one end of a known measurement on the plan (a scale bar or a labelled dimension), or enter the drawing's printed scale below."
+  );
 });
 
 traceRoomBtn.addEventListener("click", () => {
@@ -876,6 +889,43 @@ cancelActionBtn.addEventListener("click", () => {
   resetToolState();
   setStatus("Cancelled.");
   redrawOverlay();
+});
+
+// A printed scale like "1:100" means 1 PDF point on the page (1/72 inch)
+// represents 100 times that in real life — this only holds if the PDF's
+// page size actually matches the real sheet size (true for a properly
+// exported/unresized architectural PDF, which is the assumption called out
+// in the form itself). Accepts "1:100", "1/100", or just a bare "100".
+function parseScaleRatio(text) {
+  const trimmed = (text || "").trim();
+  const match =
+    /^1\s*[:/]\s*(\d+(?:\.\d+)?)$/.exec(trimmed) || /^(\d+(?:\.\d+)?)$/.exec(trimmed);
+  if (!match) return null;
+  const n = parseFloat(match[1]);
+  return n > 0 ? n : null;
+}
+const METERS_PER_POINT = 0.0254 / 72;
+
+scaleRatioConfirmBtn.addEventListener("click", () => {
+  const n = parseScaleRatio(scaleRatioInput.value);
+  if (!n) {
+    setStatus("Enter a scale like 1:100.", true);
+    return;
+  }
+  const geo = currentGeometry();
+  geo.calibration = {
+    p1: null,
+    p2: null,
+    pixelDist: null,
+    metersPerUnit: METERS_PER_POINT * n,
+    label: `1:${n}`,
+  };
+  scaleRatioInput.value = "";
+  resetToolState();
+  redrawOverlay();
+  recalcAllAreasForPage(currentPageNum);
+  saveAutosave();
+  setStatus(`Scale set to 1:${n} for this page. Click “Trace room” to start on the first room.`);
 });
 
 calibConfirmBtn.addEventListener("click", () => {

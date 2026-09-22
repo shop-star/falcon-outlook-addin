@@ -65,6 +65,25 @@
       </div>
     </div>
 
+    <!-- Alternative to clicking two points: type the page's printed scale
+         directly, if it's a known scale drawing (e.g. 1:100). -->
+    <div id="scaleRatioForm" class="inline-form" hidden>
+      <label>
+        Or, if you know it, just enter this page's printed scale:
+        <div class="inline-form-row">
+          <input id="scaleRatioInput" type="text" placeholder="e.g. 1:100" />
+        </div>
+      </label>
+      <div class="inline-form-actions">
+        <button id="scaleRatioConfirmBtn" class="primary">Use this scale</button>
+      </div>
+      <p class="muted" style="margin: 6px 0 0; max-width: 320px;">
+        Assumes this PDF's page size matches the real sheet size (i.e. it
+        wasn't resized/"fit to page" on export) — if areas look wrong,
+        measure a known dimension instead.
+      </p>
+    </div>
+
     <!-- Inline calibration form (never uses window.prompt — some hosts block it) -->
     <div id="calibrationForm" class="inline-form" hidden>
       <label>

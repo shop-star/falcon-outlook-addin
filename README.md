@@ -94,8 +94,13 @@ ribbon.
 2. Save the PDF attachment from Outlook's own UI (or download it from one
    of the listed links), then drag it into the app (or a zip containing
    it).
-3. Click **Set scale**, then click the two ends of a labelled dimension or
-   the plan's scale bar, and enter its real length and unit when prompted.
+3. Click **Set scale**, then either click the two ends of a labelled
+   dimension or the plan's scale bar and enter its real length and unit
+   when prompted, or — if you already know it — just type the page's
+   printed scale (e.g. `1:100`) into the box below and click **Use this
+   scale**. The typed-scale shortcut assumes the PDF's page size matches
+   the real sheet size (i.e. it wasn't resized on export); if areas come
+   out wrong, use the click-and-measure method instead.
 4. Click **Trace room**, click around a room's outline corner by corner,
    then **Finish room** and give it a name. Repeat for each room (and each
    page, if the plan has multiple floors — you'll need to set the scale
