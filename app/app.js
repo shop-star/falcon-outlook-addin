@@ -152,6 +152,7 @@ const resultsBody = document.getElementById("resultsBody");
 const totalM2El = document.getElementById("totalM2");
 const copyResultsBtn = document.getElementById("copyResultsBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+const downloadTracedPagesBtn = document.getElementById("downloadTracedPagesBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const copyFallback = document.getElementById("copyFallback");
 
@@ -351,6 +352,7 @@ function openPdfFromBytes(fileName, bytes) {
           viewerSectionEl.hidden = false;
           resultsSectionEl.hidden = false;
           downloadPdfBtn.hidden = false;
+          downloadTracedPagesBtn.hidden = false;
           renderPage();
           updateResultsTable();
           setStatus(`Loaded "${fileName}". Set the scale, then trace each room.`);
@@ -1076,6 +1078,37 @@ function suggestDownloadName(name) {
   return `${base}-with-rooms.pdf`;
 }
 
+// Shared by both build functions below — draws every traced room on `geo`
+// onto `pdfLibPage`, using `viewportAtScale1` to map our stored points
+// (pdf.js's scale-1 viewport space, see canvasPointFromEvent) back to the
+// PDF's own coordinate space (bottom-left origin, correctly accounting for
+// page rotation), which is what pdf-lib's drawing calls expect.
+function drawRoomAnnotations(pdfLibPage, geo, viewportAtScale1, font, outlineColor) {
+  geo.rooms.forEach((room) => {
+    if (room.points.length < 3) return;
+    const pts = room.points.map((p) => {
+      const [x, y] = viewportAtScale1.convertToPdfPoint(p[0], p[1]);
+      return { x, y };
+    });
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      pdfLibPage.drawLine({ start: a, end: b, thickness: 1.5, color: outlineColor });
+    }
+    const cx = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
+    const cy = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
+    const flatRoom = rooms.find((r) => r.id === room.id);
+    const label = flatRoom ? `${room.name} — ${flatRoom.areaM2.toFixed(2)} m²` : room.name;
+    pdfLibPage.drawText(label, {
+      x: cx - label.length * 2.3,
+      y: cy,
+      size: 9,
+      font,
+      color: outlineColor,
+    });
+  });
+}
+
 async function buildAnnotatedPdfBytes() {
   const lib = await loadPdfLib();
   const pdfDoc = await lib.PDFDocument.load(originalBytes.slice());
@@ -1096,76 +1129,107 @@ async function buildAnnotatedPdfBytes() {
     if (!geo.rooms || geo.rooms.length === 0) continue;
     if (pageNum < 1 || pageNum > pdfLibPages.length) continue;
 
-    const pdfLibPage = pdfLibPages[pageNum - 1];
-    // Our traced points are stored in pdf.js's scale-1 viewport space (see
-    // canvasPointFromEvent) — convertToPdfPoint maps that back to the PDF's
-    // own coordinate space (bottom-left origin, and correctly accounting
-    // for page rotation), which is what pdf-lib's drawing calls expect.
     const pdfjsPage = await currentPdf.getPage(pageNum);
     const viewportAtScale1 = pdfjsPage.getViewport({ scale: 1 });
-
-    geo.rooms.forEach((room) => {
-      if (room.points.length < 3) return;
-      const pts = room.points.map((p) => {
-        const [x, y] = viewportAtScale1.convertToPdfPoint(p[0], p[1]);
-        return { x, y };
-      });
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[i];
-        const b = pts[(i + 1) % pts.length];
-        pdfLibPage.drawLine({ start: a, end: b, thickness: 1.5, color: outlineColor });
-      }
-      const cx = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
-      const cy = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
-      const flatRoom = rooms.find((r) => r.id === room.id);
-      const label = flatRoom ? `${room.name} — ${flatRoom.areaM2.toFixed(2)} m²` : room.name;
-      pdfLibPage.drawText(label, {
-        x: cx - label.length * 2.3,
-        y: cy,
-        size: 9,
-        font,
-        color: outlineColor,
-      });
-    });
+    drawRoomAnnotations(pdfLibPages[pageNum - 1], geo, viewportAtScale1, font, outlineColor);
   }
 
   return pdfDoc.save();
 }
 
-// A real browser tab (unlike the Outlook add-in's embedded dialog WebView
-// this replaced) handles a Blob URL + a programmatically-clicked <a
-// download> perfectly normally, even after the async work below — this is
-// an ordinary, well-supported web pattern here, not the two-phase dance the
-// add-in needed.
-downloadPdfBtn.addEventListener("click", (evt) => {
-  evt.preventDefault();
-  if (!currentPdf || !originalBytes || downloadPdfBtn.dataset.busy === "1") return;
+function suggestTracedPagesDownloadName(name) {
+  const base = (name || "floor-plan").replace(/\.pdf$/i, "");
+  return `${base}-traced-pages.pdf`;
+}
 
-  const originalText = downloadPdfBtn.textContent;
-  downloadPdfBtn.dataset.busy = "1";
-  downloadPdfBtn.textContent = "Preparing…";
-  setStatus("Preparing PDF with room data…");
+// A lighter export than buildAnnotatedPdfBytes above: a brand-new document
+// containing only the pages that actually have a traced room, for sharing
+// just the relevant sheets instead of the whole plan set. Deliberately
+// doesn't embed the geometry JSON the way the full export does — once pages
+// are dropped, page numbers no longer match the original file, so restoring
+// progress from this copy would apply the wrong page's rooms to the wrong
+// page. This one is for reading, not round-tripping.
+async function buildTracedPagesOnlyPdfBytes() {
+  const tracedPageNums = Object.keys(pageGeometry)
+    .map(Number)
+    .filter((pageNum) => {
+      const geo = pageGeometry[pageNum];
+      return geo && geo.rooms && geo.rooms.length > 0;
+    })
+    .sort((a, b) => a - b);
 
-  buildAnnotatedPdfBytes().then(
-    (bytes) => {
-      const blob = new Blob([bytes], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const filename = suggestDownloadName(currentFileName);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
-      downloadPdfBtn.textContent = originalText;
-      downloadPdfBtn.dataset.busy = "";
-      setStatus(`Downloaded "${filename}".`);
-    },
-    (err) => {
-      downloadPdfBtn.textContent = originalText;
-      downloadPdfBtn.dataset.busy = "";
-      setStatus("Couldn't build the PDF download — " + describeError(err), true);
-    }
-  );
-});
+  if (tracedPageNums.length === 0) {
+    throw new Error("No traced rooms yet — trace at least one room first.");
+  }
+
+  const lib = await loadPdfLib();
+  const srcDoc = await lib.PDFDocument.load(originalBytes.slice());
+  const outDoc = await lib.PDFDocument.create();
+  const copiedPages = await outDoc.copyPages(srcDoc, tracedPageNums.map((n) => n - 1));
+  copiedPages.forEach((page) => outDoc.addPage(page));
+
+  const font = await outDoc.embedFont(lib.StandardFonts.Helvetica);
+  const outlineColor = lib.rgb(0.08, 0.4, 0.36);
+
+  for (let i = 0; i < tracedPageNums.length; i++) {
+    const pageNum = tracedPageNums[i];
+    const pdfjsPage = await currentPdf.getPage(pageNum);
+    const viewportAtScale1 = pdfjsPage.getViewport({ scale: 1 });
+    drawRoomAnnotations(copiedPages[i], pageGeometry[pageNum], viewportAtScale1, font, outlineColor);
+  }
+
+  return outDoc.save();
+}
+
+// Shared by both download buttons. A real browser tab (unlike the Outlook
+// add-in's embedded dialog WebView this replaced) handles a Blob URL + a
+// programmatically-clicked <a download> perfectly normally, even after the
+// async build work below — this is an ordinary, well-supported web pattern
+// here, not the two-phase dance the add-in needed.
+function wireDownloadButton(btn, buildFn, filenameFn, preparingStatus) {
+  btn.addEventListener("click", (evt) => {
+    evt.preventDefault();
+    if (!currentPdf || !originalBytes || btn.dataset.busy === "1") return;
+
+    const originalText = btn.textContent;
+    btn.dataset.busy = "1";
+    btn.textContent = "Preparing…";
+    setStatus(preparingStatus);
+
+    buildFn().then(
+      (bytes) => {
+        const blob = new Blob([bytes], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
+        const filename = filenameFn();
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        btn.textContent = originalText;
+        btn.dataset.busy = "";
+        setStatus(`Downloaded "${filename}".`);
+      },
+      (err) => {
+        btn.textContent = originalText;
+        btn.dataset.busy = "";
+        setStatus("Couldn't build the download — " + describeError(err), true);
+      }
+    );
+  });
+}
+
+wireDownloadButton(
+  downloadPdfBtn,
+  buildAnnotatedPdfBytes,
+  () => suggestDownloadName(currentFileName),
+  "Preparing PDF with room data…"
+);
+wireDownloadButton(
+  downloadTracedPagesBtn,
+  buildTracedPagesOnlyPdfBytes,
+  () => suggestTracedPagesDownloadName(currentFileName),
+  "Preparing traced pages…"
+);

@@ -104,8 +104,10 @@ ribbon.
    its corner handles to reshape it — the area updates as you drag.
 5. Read the running list and total in the **Floor areas** section (it
    updates live as you trace), and use **Copy results** to paste a
-   tab-separated list into Excel or your quote, or **Download PDF with room
-   data** for an annotated copy of the plan itself.
+   tab-separated list into Excel or your quote. **Download PDF with room
+   data** gives you an annotated copy of the whole plan; **Download traced
+   pages only** gives you a smaller PDF with just the pages that actually
+   have a traced room on them — handy for sharing only the relevant sheets.
 
 Your scale and traced rooms are saved automatically as you work, to your
 browser's local storage for that exact file (by name and size) — reopening
@@ -126,6 +128,11 @@ want to start over.
 - Multi-page plans need the scale set separately on each page (a ground
   floor and first floor page are usually drawn at different points on the
   sheet, so we don't assume they share a scale).
+- **Download traced pages only** isn't round-trippable like the full
+  download is — dropping pages shifts the page numbers, so re-opening that
+  copy won't restore your progress. Use **Download PDF with room data**
+  (or just keep working in this browser) if you want to pick this plan back
+  up later.
 - The add-in only ever passes along attachment *names* and email *links* —
   never file bytes — so you still save/download the actual PDF yourself
   and drop it into the app. There's no built-in Dropbox/OneDrive picker
