@@ -138,11 +138,6 @@ want to start over.
 - Multi-page plans need the scale set separately on each page (a ground
   floor and first floor page are usually drawn at different points on the
   sheet, so we don't assume they share a scale).
-- Downloading **only the pages with tracings** isn't round-trippable like
-  downloading **all pages** is — dropping pages shifts the page numbers, so
-  re-opening that copy won't restore your progress. Use the "all pages"
-  option (or just keep working in this browser) if you want to pick this
-  plan back up later.
 - The add-in only ever passes along attachment *names* and email *links* —
   never file bytes — so you still save/download the actual PDF yourself
   and drop it into the app. There's no built-in Dropbox/OneDrive picker

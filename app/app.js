@@ -1209,11 +1209,11 @@ clearAllBtn.addEventListener("click", () => {
 // pdf.js is using, since getDocument() can transfer/detach that buffer —
 // with the traced outlines/labels drawn directly onto the pages (so the
 // measurements are visible in any ordinary PDF viewer), optionally a
-// summary page listing every room and its area, and — only when every
-// original page survives — the raw geometry embedded as a JSON file
-// attachment so re-opening this exact file restores the exact editable
-// state. Dropping pages shifts page numbers, so that embed is skipped
-// whenever a page is left out — it would otherwise point at the wrong page.
+// summary page listing every room and its area, and the raw geometry
+// embedded as a JSON file attachment so re-opening this exact file restores
+// the exact editable state — whether it kept every original page or only
+// the traced ones (see buildDownloadPdfBytes for how the embedded page
+// numbers get re-keyed to match whatever pages actually ended up in it).
 function suggestDownloadName(name, pagesMode) {
   const base = (name || "floor-plan").replace(/\.pdf$/i, "");
   return pagesMode === "traced" ? `${base}-traced-pages.pdf` : `${base}-with-rooms.pdf`;
@@ -1316,14 +1316,20 @@ async function addSummaryPages(lib, outDoc, pageWidth, pageHeight) {
   page.drawText(total.toFixed(2), { x: colX.area, y, size: 11, font: boldFont, color: black });
 }
 
-// pagesMode: "all" keeps every original page (and embeds the round-trip
-// geometry JSON); "traced" builds a brand-new document with just the pages
-// that actually have a traced room (no embed — see the doc comment above).
+// pagesMode: "all" keeps every original page; "traced" builds a brand-new
+// document with just the pages that actually have a traced room. Either
+// way the embedded round-trip geometry JSON is keyed to *this output
+// document's own page numbers*, not the original file's — when pages are
+// dropped, page 1 of the trimmed copy might be page 5 of the original, so
+// the geometry saved under "page 5" gets re-keyed to "page 1" here. That's
+// what makes a reopened copy of either kind restore correctly: its
+// embedded data always describes the pages actually in that file.
 // includeSummary appends the floor-areas table as extra page(s) either way.
 async function buildDownloadPdfBytes({ pagesMode, includeSummary }) {
   const lib = await loadPdfLib();
   let outDoc;
-  let pagesByNum; // Map<original page number, pdf-lib PDFPage in outDoc>
+  let pageEntries; // [{ origPageNum, pdfLibPage }], in the order they end up in outDoc
+  let geometryForEmbed;
 
   if (pagesMode === "traced") {
     const tracedPageNums = Object.keys(pageGeometry)
@@ -1342,22 +1348,32 @@ async function buildDownloadPdfBytes({ pagesMode, includeSummary }) {
     outDoc = await lib.PDFDocument.create();
     const copiedPages = await outDoc.copyPages(srcDoc, tracedPageNums.map((n) => n - 1));
     copiedPages.forEach((page) => outDoc.addPage(page));
-    pagesByNum = new Map(tracedPageNums.map((pageNum, i) => [pageNum, copiedPages[i]]));
+
+    pageEntries = tracedPageNums.map((origPageNum, i) => ({ origPageNum, pdfLibPage: copiedPages[i] }));
+    geometryForEmbed = {};
+    pageEntries.forEach((entry, i) => {
+      geometryForEmbed[i + 1] = pageGeometry[entry.origPageNum];
+    });
   } else {
     outDoc = await lib.PDFDocument.load(originalBytes.slice());
-    const geometryJson = JSON.stringify({ pageGeometry, nextRoomId }, null, 2);
-    await outDoc.attach(new TextEncoder().encode(geometryJson), "floor-area-takeoff.json", {
-      mimeType: "application/json",
-      description: "Floor Area Takeoff — scale calibration and traced room outlines",
-    });
-    pagesByNum = new Map(outDoc.getPages().map((page, i) => [i + 1, page]));
+    pageEntries = outDoc.getPages().map((pdfLibPage, i) => ({ origPageNum: i + 1, pdfLibPage }));
+    geometryForEmbed = pageGeometry;
   }
 
+  const geometryJson = JSON.stringify({ pageGeometry: geometryForEmbed, nextRoomId }, null, 2);
+  await outDoc.attach(new TextEncoder().encode(geometryJson), "floor-area-takeoff.json", {
+    mimeType: "application/json",
+    description: "Floor Area Takeoff — scale calibration and traced room outlines",
+  });
+
   const font = await outDoc.embedFont(lib.StandardFonts.Helvetica);
-  for (const [pageNum, pdfLibPage] of pagesByNum) {
-    const geo = pageGeometry[pageNum];
+  for (const { origPageNum, pdfLibPage } of pageEntries) {
+    const geo = pageGeometry[origPageNum];
     if (!geo || !geo.rooms || geo.rooms.length === 0) continue;
-    const pdfjsPage = await currentPdf.getPage(pageNum);
+    // currentPdf is pdf.js's parse of the *original* file, so this lookup
+    // always needs the original page number, regardless of where that
+    // page ended up (or whether it was renumbered) in outDoc.
+    const pdfjsPage = await currentPdf.getPage(origPageNum);
     const viewportAtScale1 = pdfjsPage.getViewport({ scale: 1 });
     drawRoomAnnotations(lib, pdfLibPage, geo, viewportAtScale1, font);
   }
