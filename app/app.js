@@ -995,6 +995,25 @@ roomNameCancelBtn.addEventListener("click", () => {
   roomNameForm.hidden = true;
 });
 
+// None of these inline forms are real <form> elements (a plain <div>, same
+// reasoning as everywhere else in this app — no accidental page navigation
+// from an implicit submit), which also means Enter in a text field does
+// nothing by default. Pressing Enter to submit a single-field form is a
+// reasonable enough expectation that it's worth wiring up explicitly rather
+// than silently doing nothing and leaving whoever typed a scale or a name
+// wondering why the button they didn't click never fired.
+function submitOnEnter(input, btn) {
+  input.addEventListener("keydown", (evt) => {
+    if (evt.key === "Enter") {
+      evt.preventDefault();
+      btn.click();
+    }
+  });
+}
+submitOnEnter(scaleRatioInput, scaleRatioConfirmBtn);
+submitOnEnter(calibLengthInput, calibConfirmBtn);
+submitOnEnter(roomNameInput, roomNameConfirmBtn);
+
 // If the scale is re-set on a page, existing rooms on that page keep their
 // traced outlines but their areas are recalculated against the new scale.
 function recalcAllAreasForPage(pageNum) {
