@@ -109,7 +109,10 @@
     <div id="roomNameForm" class="inline-form" hidden>
       <label>
         Room name:
-        <input id="roomNameInput" type="text" placeholder="e.g. Living room" />
+        <div class="inline-form-row">
+          <input id="roomNameInput" type="text" placeholder="e.g. Living room" />
+          <input id="roomColorInput" type="color" title="Room colour" />
+        </div>
       </label>
       <div class="inline-form-actions">
         <button id="roomNameConfirmBtn" class="primary">Add room</button>
@@ -125,6 +128,7 @@
     <table id="resultsTable" class="results-table">
       <thead>
         <tr>
+          <th></th>
           <th>Room</th>
           <th>Page</th>
           <th>m²</th>
@@ -134,6 +138,7 @@
       <tbody id="resultsBody"></tbody>
       <tfoot>
         <tr>
+          <td></td>
           <td><strong>Total</strong></td>
           <td></td>
           <td id="totalM2"><strong>0.00</strong></td>
@@ -143,9 +148,27 @@
     </table>
     <div class="results-actions">
       <button id="copyResultsBtn">Copy results</button>
-      <a id="downloadPdfBtn" class="btn primary" href="#" download hidden>Download PDF with room data</a>
-      <a id="downloadTracedPagesBtn" class="btn" href="#" download hidden>Download traced pages only</a>
+      <button id="downloadOptionsBtn" class="primary" hidden>Download PDF</button>
       <button id="clearAllBtn">Clear all</button>
+    </div>
+
+    <!-- Inline download-options form, revealed by downloadOptionsBtn -->
+    <div id="downloadOptionsForm" class="inline-form" hidden>
+      <div class="download-options-group">
+        <span class="muted">Pages to include:</span>
+        <label><input type="radio" name="downloadPages" value="all" checked /> All pages</label>
+        <label><input type="radio" name="downloadPages" value="traced" /> Only pages with tracings</label>
+      </div>
+      <div class="download-options-group">
+        <label>
+          <input type="checkbox" id="downloadIncludeSummary" checked />
+          Include a summary page with the floor areas table
+        </label>
+      </div>
+      <div class="inline-form-actions">
+        <button id="downloadConfirmBtn" class="primary">Download</button>
+        <button id="downloadOptionsCancelBtn">Cancel</button>
+      </div>
     </div>
     <textarea id="copyFallback" class="copy-fallback" hidden></textarea>
   </section>

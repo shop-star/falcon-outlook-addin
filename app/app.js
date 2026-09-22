@@ -75,6 +75,25 @@ function loadJSZip() {
 
 const UNIT_TO_M = { mm: 0.001, cm: 0.01, m: 1, ft: 0.3048, in: 0.0254 };
 
+// A room's colour is picked from this palette by default (cycling by how
+// many rooms already exist), and can always be overridden — either in the
+// naming form when first tracing it, or from the swatch in the results
+// table afterward.
+const DEFAULT_ROOM_COLOR = "#15655c";
+const ROOM_COLOR_PALETTE = [
+  "#15655c",
+  "#c2185b",
+  "#e07b00",
+  "#3f51b5",
+  "#7b1fa2",
+  "#00838f",
+  "#558b2f",
+  "#ad1457",
+];
+function paletteColor(index) {
+  return ROOM_COLOR_PALETTE[index % ROOM_COLOR_PALETTE.length];
+}
+
 // ---- State -----------------------------------------------------------
 let currentPdf = null;
 let currentPageNum = 1;
@@ -147,6 +166,7 @@ const calibCancelBtn = document.getElementById("calibCancelBtn");
 
 const roomNameForm = document.getElementById("roomNameForm");
 const roomNameInput = document.getElementById("roomNameInput");
+const roomColorInput = document.getElementById("roomColorInput");
 const roomNameConfirmBtn = document.getElementById("roomNameConfirmBtn");
 const roomNameCancelBtn = document.getElementById("roomNameCancelBtn");
 
@@ -155,8 +175,11 @@ const scaleInfoEl = document.getElementById("scaleInfo");
 const resultsBody = document.getElementById("resultsBody");
 const totalM2El = document.getElementById("totalM2");
 const copyResultsBtn = document.getElementById("copyResultsBtn");
-const downloadPdfBtn = document.getElementById("downloadPdfBtn");
-const downloadTracedPagesBtn = document.getElementById("downloadTracedPagesBtn");
+const downloadOptionsBtn = document.getElementById("downloadOptionsBtn");
+const downloadOptionsForm = document.getElementById("downloadOptionsForm");
+const downloadIncludeSummary = document.getElementById("downloadIncludeSummary");
+const downloadConfirmBtn = document.getElementById("downloadConfirmBtn");
+const downloadOptionsCancelBtn = document.getElementById("downloadOptionsCancelBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const copyFallback = document.getElementById("copyFallback");
 
@@ -355,8 +378,8 @@ function openPdfFromBytes(fileName, bytes) {
           fileNameHeadingEl.textContent = `2. Set scale, then trace rooms — "${fileName}"`;
           viewerSectionEl.hidden = false;
           resultsSectionEl.hidden = false;
-          downloadPdfBtn.hidden = false;
-          downloadTracedPagesBtn.hidden = false;
+          downloadOptionsBtn.hidden = false;
+          downloadOptionsForm.hidden = true;
           renderPage();
           updateResultsTable();
           setStatus(`Loaded "${fileName}". Set the scale, then trace each room.`);
@@ -416,7 +439,7 @@ function applyRestoredGeometry(geometry, nextId) {
       const areaM2 = geo.calibration
         ? areaPageUnits * geo.calibration.metersPerUnit * geo.calibration.metersPerUnit
         : 0;
-      rooms.push({ id: r.id, page: pageNum, name: r.name, areaM2 });
+      rooms.push({ id: r.id, page: pageNum, name: r.name, areaM2, color: r.color || DEFAULT_ROOM_COLOR });
     });
   });
   redrawOverlay();
@@ -542,9 +565,10 @@ function redrawOverlay() {
 
   geo.rooms.forEach((room) => {
     const isEditing = room.id === editingRoom;
-    drawPolygon(room.points, isEditing ? "#c2185b" : "#15655c", room.name);
+    const color = room.color || DEFAULT_ROOM_COLOR;
+    drawPolygon(room.points, color, roomLabelText(room), isEditing ? 3 : 2);
     if (isEditing) {
-      room.points.forEach((pt) => drawHandle(pt, "#c2185b"));
+      room.points.forEach((pt) => drawHandle(pt, color));
     }
   });
 
@@ -622,7 +646,15 @@ function drawPolyline(points, color) {
   points.forEach((p) => drawPoint(p, color));
 }
 
-function drawPolygon(points, color, label) {
+function hexToRgba(hex, alpha) {
+  const clean = (hex || "").replace("#", "");
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function drawPolygon(points, color, label, lineWidth) {
   if (points.length < 3) return;
   overlayCtx.beginPath();
   const [x0, y0] = toCanvas(points[0]);
@@ -632,10 +664,10 @@ function drawPolygon(points, color, label) {
     overlayCtx.lineTo(x, y);
   }
   overlayCtx.closePath();
-  overlayCtx.fillStyle = "rgba(21, 101, 92, 0.15)";
+  overlayCtx.fillStyle = hexToRgba(color, 0.15);
   overlayCtx.fill();
   overlayCtx.strokeStyle = color;
-  overlayCtx.lineWidth = 2;
+  overlayCtx.lineWidth = lineWidth || 2;
   overlayCtx.stroke();
 
   const centroid = points.reduce(
@@ -643,6 +675,9 @@ function drawPolygon(points, color, label) {
     [0, 0]
   );
   const [cx, cy] = toCanvas(centroid);
+  // Label text stays a fixed dark colour regardless of the room's own
+  // colour — a light user-chosen colour would make a matching label hard
+  // to read, and the coloured outline/fill already identifies the room.
   overlayCtx.fillStyle = "#0e453e";
   overlayCtx.font = "13px Segoe UI, Arial, sans-serif";
   overlayCtx.textAlign = "center";
@@ -664,6 +699,14 @@ function polygonAreaPageUnits(points) {
     sum += x1 * y2 - x2 * y1;
   }
   return Math.abs(sum) / 2;
+}
+
+// Shared by the canvas overlay and the PDF exports — a room's label always
+// shows its name and computed area, looked up from the flat `rooms` list
+// (the source of truth for areaM2) rather than recomputed here.
+function roomLabelText(geoRoom) {
+  const flatRoom = rooms.find((r) => r.id === geoRoom.id);
+  return flatRoom ? `${geoRoom.name} — ${flatRoom.areaM2.toFixed(2)} m²` : geoRoom.name;
 }
 
 function canvasPointFromEvent(evt) {
@@ -965,6 +1008,7 @@ finishRoomBtn.addEventListener("click", () => {
   if (traceTemp.points.length < 3) return;
   roomNameForm.hidden = false;
   roomNameInput.value = `Room ${rooms.length + 1}`;
+  roomColorInput.value = paletteColor(rooms.length);
   roomNameInput.focus();
   roomNameInput.select();
 });
@@ -976,12 +1020,13 @@ roomNameConfirmBtn.addEventListener("click", () => {
     return;
   }
   const name = roomNameInput.value.trim() || `Room ${rooms.length + 1}`;
+  const color = roomColorInput.value || DEFAULT_ROOM_COLOR;
   const areaPageUnits = polygonAreaPageUnits(traceTemp.points);
   const areaM2 = areaPageUnits * geo.calibration.metersPerUnit * geo.calibration.metersPerUnit;
 
   const id = nextRoomId++;
-  geo.rooms.push({ id, name, points: traceTemp.points.slice() });
-  rooms.push({ id, page: currentPageNum, name, areaM2 });
+  geo.rooms.push({ id, name, points: traceTemp.points.slice(), color });
+  rooms.push({ id, page: currentPageNum, name, areaM2, color });
 
   roomNameForm.hidden = true;
   resetToolState();
@@ -1060,6 +1105,14 @@ function updateResultsTable() {
     totalM2 += r.areaM2;
     const tr = document.createElement("tr");
 
+    const colorTd = document.createElement("td");
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.value = r.color || DEFAULT_ROOM_COLOR;
+    colorInput.title = "Room colour";
+    colorInput.addEventListener("input", () => updateRoomColor(r.id, colorInput.value));
+    colorTd.appendChild(colorInput);
+
     const nameTd = document.createElement("td");
     nameTd.textContent = r.name;
 
@@ -1077,6 +1130,7 @@ function updateResultsTable() {
     delBtn.addEventListener("click", () => removeRoom(r.id));
     delTd.appendChild(delBtn);
 
+    tr.appendChild(colorTd);
     tr.appendChild(nameTd);
     tr.appendChild(pageTd);
     tr.appendChild(m2Td);
@@ -1095,6 +1149,21 @@ function removeRoom(id) {
   if (editingRoom === id) editingRoom = null;
   redrawOverlay();
   updateResultsTable();
+  saveAutosave();
+}
+
+// Kept in sync on both the flat `rooms` list (what the results table's
+// swatch reflects) and the per-page geometry (what drawing/export reads) —
+// deliberately doesn't call updateResultsTable(), which would rebuild the
+// row out from under the very <input type="color"> the user is still
+// interacting with.
+function updateRoomColor(id, color) {
+  const flatRoom = rooms.find((r) => r.id === id);
+  if (flatRoom) flatRoom.color = color;
+  const geo = pageGeometry[flatRoom ? flatRoom.page : currentPageNum];
+  const geoRoom = geo && geo.rooms.find((r) => r.id === id);
+  if (geoRoom) geoRoom.color = color;
+  redrawOverlay();
   saveAutosave();
 }
 
@@ -1138,23 +1207,35 @@ clearAllBtn.addEventListener("click", () => {
 // ---- 4. Download PDF with room data embedded -------------------------------
 // Builds a modified copy of the original PDF — never the in-memory copy
 // pdf.js is using, since getDocument() can transfer/detach that buffer —
-// with two things added: the raw geometry as a JSON file attachment (so
-// re-opening this exact file restores the exact editable state, no account
-// or storage needed) and the traced outlines/labels drawn directly onto the
-// pages (so the measurements are visible in any ordinary PDF viewer).
-function suggestDownloadName(name) {
+// with the traced outlines/labels drawn directly onto the pages (so the
+// measurements are visible in any ordinary PDF viewer), optionally a
+// summary page listing every room and its area, and — only when every
+// original page survives — the raw geometry embedded as a JSON file
+// attachment so re-opening this exact file restores the exact editable
+// state. Dropping pages shifts page numbers, so that embed is skipped
+// whenever a page is left out — it would otherwise point at the wrong page.
+function suggestDownloadName(name, pagesMode) {
   const base = (name || "floor-plan").replace(/\.pdf$/i, "");
-  return `${base}-with-rooms.pdf`;
+  return pagesMode === "traced" ? `${base}-traced-pages.pdf` : `${base}-with-rooms.pdf`;
 }
 
-// Shared by both build functions below — draws every traced room on `geo`
-// onto `pdfLibPage`, using `viewportAtScale1` to map our stored points
-// (pdf.js's scale-1 viewport space, see canvasPointFromEvent) back to the
-// PDF's own coordinate space (bottom-left origin, correctly accounting for
-// page rotation), which is what pdf-lib's drawing calls expect.
-function drawRoomAnnotations(pdfLibPage, geo, viewportAtScale1, font, outlineColor) {
+function hexToPdfRgb(lib, hex) {
+  const clean = (hex || "").replace("#", "");
+  const r = parseInt(clean.substring(0, 2), 16) / 255;
+  const g = parseInt(clean.substring(2, 4), 16) / 255;
+  const b = parseInt(clean.substring(4, 6), 16) / 255;
+  return lib.rgb(r, g, b);
+}
+
+// Draws every traced room on `geo` onto `pdfLibPage`, each in its own
+// chosen colour, using `viewportAtScale1` to map our stored points (pdf.js's
+// scale-1 viewport space, see canvasPointFromEvent) back to the PDF's own
+// coordinate space (bottom-left origin, correctly accounting for page
+// rotation), which is what pdf-lib's drawing calls expect.
+function drawRoomAnnotations(lib, pdfLibPage, geo, viewportAtScale1, font) {
   geo.rooms.forEach((room) => {
     if (room.points.length < 3) return;
+    const color = hexToPdfRgb(lib, room.color || DEFAULT_ROOM_COLOR);
     const pts = room.points.map((p) => {
       const [x, y] = viewportAtScale1.convertToPdfPoint(p[0], p[1]);
       return { x, y };
@@ -1162,143 +1243,178 @@ function drawRoomAnnotations(pdfLibPage, geo, viewportAtScale1, font, outlineCol
     for (let i = 0; i < pts.length; i++) {
       const a = pts[i];
       const b = pts[(i + 1) % pts.length];
-      pdfLibPage.drawLine({ start: a, end: b, thickness: 1.5, color: outlineColor });
+      pdfLibPage.drawLine({ start: a, end: b, thickness: 1.5, color });
     }
     const cx = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
     const cy = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
-    const flatRoom = rooms.find((r) => r.id === room.id);
-    const label = flatRoom ? `${room.name} — ${flatRoom.areaM2.toFixed(2)} m²` : room.name;
+    const label = roomLabelText(room);
     pdfLibPage.drawText(label, {
       x: cx - label.length * 2.3,
       y: cy,
       size: 9,
       font,
-      color: outlineColor,
+      color,
     });
   });
 }
 
-async function buildAnnotatedPdfBytes() {
-  const lib = await loadPdfLib();
-  const pdfDoc = await lib.PDFDocument.load(originalBytes.slice());
+// A plain, paginating table of every room and its area appended to the end
+// of the document — header row, one row per room, a total row, starting a
+// fresh page whenever the current one runs out of room. Uses the same page
+// size as the plan itself so it sits consistently alongside it.
+async function addSummaryPages(lib, outDoc, pageWidth, pageHeight) {
+  const font = await outDoc.embedFont(lib.StandardFonts.Helvetica);
+  const boldFont = await outDoc.embedFont(lib.StandardFonts.HelveticaBold);
+  const black = lib.rgb(0, 0, 0);
+  const grey = lib.rgb(0.6, 0.6, 0.6);
+  const margin = 40;
+  const rowHeight = 18;
+  const colX = { name: margin, page: pageWidth - 170, area: pageWidth - 90 };
 
-  const geometryJson = JSON.stringify({ pageGeometry, nextRoomId }, null, 2);
-  await pdfDoc.attach(new TextEncoder().encode(geometryJson), "floor-area-takeoff.json", {
-    mimeType: "application/json",
-    description: "Floor Area Takeoff — scale calibration and traced room outlines",
+  let page = null;
+  let y = 0;
+
+  function drawHeaderRow() {
+    page.drawText("Room", { x: colX.name, y, size: 11, font: boldFont, color: black });
+    page.drawText("Page", { x: colX.page, y, size: 11, font: boldFont, color: black });
+    page.drawText("m²", { x: colX.area, y, size: 11, font: boldFont, color: black });
+    y -= 6;
+    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 1, color: grey });
+    y -= rowHeight;
+  }
+
+  function startPage(withTitle) {
+    page = outDoc.addPage([pageWidth, pageHeight]);
+    y = pageHeight - margin;
+    if (withTitle) {
+      page.drawText("Floor Areas", { x: margin, y, size: 16, font: boldFont, color: black });
+      y -= 28;
+    }
+    drawHeaderRow();
+  }
+
+  startPage(true);
+
+  let total = 0;
+  rooms.forEach((r) => {
+    if (y < margin + rowHeight * 2) startPage(false);
+    page.drawText(r.name, { x: colX.name, y, size: 10, font, color: black });
+    page.drawText(String(r.page), { x: colX.page, y, size: 10, font, color: black });
+    page.drawText(r.areaM2.toFixed(2), { x: colX.area, y, size: 10, font, color: black });
+    total += r.areaM2;
+    y -= rowHeight;
   });
 
-  const pdfLibPages = pdfDoc.getPages();
-  const font = await pdfDoc.embedFont(lib.StandardFonts.Helvetica);
-  const outlineColor = lib.rgb(0.08, 0.4, 0.36);
-
-  for (const pageNumKey of Object.keys(pageGeometry)) {
-    const pageNum = Number(pageNumKey);
-    const geo = pageGeometry[pageNum];
-    if (!geo.rooms || geo.rooms.length === 0) continue;
-    if (pageNum < 1 || pageNum > pdfLibPages.length) continue;
-
-    const pdfjsPage = await currentPdf.getPage(pageNum);
-    const viewportAtScale1 = pdfjsPage.getViewport({ scale: 1 });
-    drawRoomAnnotations(pdfLibPages[pageNum - 1], geo, viewportAtScale1, font, outlineColor);
-  }
-
-  return pdfDoc.save();
+  y -= 4;
+  page.drawLine({
+    start: { x: margin, y: y + rowHeight - 4 },
+    end: { x: pageWidth - margin, y: y + rowHeight - 4 },
+    thickness: 1.5,
+    color: black,
+  });
+  page.drawText("Total", { x: colX.name, y, size: 11, font: boldFont, color: black });
+  page.drawText(total.toFixed(2), { x: colX.area, y, size: 11, font: boldFont, color: black });
 }
 
-function suggestTracedPagesDownloadName(name) {
-  const base = (name || "floor-plan").replace(/\.pdf$/i, "");
-  return `${base}-traced-pages.pdf`;
-}
-
-// A lighter export than buildAnnotatedPdfBytes above: a brand-new document
-// containing only the pages that actually have a traced room, for sharing
-// just the relevant sheets instead of the whole plan set. Deliberately
-// doesn't embed the geometry JSON the way the full export does — once pages
-// are dropped, page numbers no longer match the original file, so restoring
-// progress from this copy would apply the wrong page's rooms to the wrong
-// page. This one is for reading, not round-tripping.
-async function buildTracedPagesOnlyPdfBytes() {
-  const tracedPageNums = Object.keys(pageGeometry)
-    .map(Number)
-    .filter((pageNum) => {
-      const geo = pageGeometry[pageNum];
-      return geo && geo.rooms && geo.rooms.length > 0;
-    })
-    .sort((a, b) => a - b);
-
-  if (tracedPageNums.length === 0) {
-    throw new Error("No traced rooms yet — trace at least one room first.");
-  }
-
+// pagesMode: "all" keeps every original page (and embeds the round-trip
+// geometry JSON); "traced" builds a brand-new document with just the pages
+// that actually have a traced room (no embed — see the doc comment above).
+// includeSummary appends the floor-areas table as extra page(s) either way.
+async function buildDownloadPdfBytes({ pagesMode, includeSummary }) {
   const lib = await loadPdfLib();
-  const srcDoc = await lib.PDFDocument.load(originalBytes.slice());
-  const outDoc = await lib.PDFDocument.create();
-  const copiedPages = await outDoc.copyPages(srcDoc, tracedPageNums.map((n) => n - 1));
-  copiedPages.forEach((page) => outDoc.addPage(page));
+  let outDoc;
+  let pagesByNum; // Map<original page number, pdf-lib PDFPage in outDoc>
+
+  if (pagesMode === "traced") {
+    const tracedPageNums = Object.keys(pageGeometry)
+      .map(Number)
+      .filter((pageNum) => {
+        const geo = pageGeometry[pageNum];
+        return geo && geo.rooms && geo.rooms.length > 0;
+      })
+      .sort((a, b) => a - b);
+
+    if (tracedPageNums.length === 0) {
+      throw new Error("No traced rooms yet — trace at least one room first.");
+    }
+
+    const srcDoc = await lib.PDFDocument.load(originalBytes.slice());
+    outDoc = await lib.PDFDocument.create();
+    const copiedPages = await outDoc.copyPages(srcDoc, tracedPageNums.map((n) => n - 1));
+    copiedPages.forEach((page) => outDoc.addPage(page));
+    pagesByNum = new Map(tracedPageNums.map((pageNum, i) => [pageNum, copiedPages[i]]));
+  } else {
+    outDoc = await lib.PDFDocument.load(originalBytes.slice());
+    const geometryJson = JSON.stringify({ pageGeometry, nextRoomId }, null, 2);
+    await outDoc.attach(new TextEncoder().encode(geometryJson), "floor-area-takeoff.json", {
+      mimeType: "application/json",
+      description: "Floor Area Takeoff — scale calibration and traced room outlines",
+    });
+    pagesByNum = new Map(outDoc.getPages().map((page, i) => [i + 1, page]));
+  }
 
   const font = await outDoc.embedFont(lib.StandardFonts.Helvetica);
-  const outlineColor = lib.rgb(0.08, 0.4, 0.36);
-
-  for (let i = 0; i < tracedPageNums.length; i++) {
-    const pageNum = tracedPageNums[i];
+  for (const [pageNum, pdfLibPage] of pagesByNum) {
+    const geo = pageGeometry[pageNum];
+    if (!geo || !geo.rooms || geo.rooms.length === 0) continue;
     const pdfjsPage = await currentPdf.getPage(pageNum);
     const viewportAtScale1 = pdfjsPage.getViewport({ scale: 1 });
-    drawRoomAnnotations(copiedPages[i], pageGeometry[pageNum], viewportAtScale1, font, outlineColor);
+    drawRoomAnnotations(lib, pdfLibPage, geo, viewportAtScale1, font);
+  }
+
+  if (includeSummary) {
+    const refPage = outDoc.getPages()[0];
+    await addSummaryPages(lib, outDoc, refPage.getWidth(), refPage.getHeight());
   }
 
   return outDoc.save();
 }
 
-// Shared by both download buttons. A real browser tab (unlike the Outlook
-// add-in's embedded dialog WebView this replaced) handles a Blob URL + a
-// programmatically-clicked <a download> perfectly normally, even after the
-// async build work below — this is an ordinary, well-supported web pattern
-// here, not the two-phase dance the add-in needed.
-function wireDownloadButton(btn, buildFn, filenameFn, preparingStatus) {
-  btn.addEventListener("click", (evt) => {
-    evt.preventDefault();
-    if (!currentPdf || !originalBytes || btn.dataset.busy === "1") return;
+// A real browser tab (unlike the Outlook add-in's embedded dialog WebView
+// this replaced) handles a Blob URL + a programmatically-clicked <a
+// download> perfectly normally, even after the async build work below —
+// this is an ordinary, well-supported web pattern here, not the two-phase
+// dance the add-in needed.
+downloadOptionsBtn.addEventListener("click", () => {
+  downloadOptionsForm.hidden = false;
+});
 
-    const originalText = btn.textContent;
-    btn.dataset.busy = "1";
-    btn.textContent = "Preparing…";
-    setStatus(preparingStatus);
+downloadOptionsCancelBtn.addEventListener("click", () => {
+  downloadOptionsForm.hidden = true;
+});
 
-    buildFn().then(
-      (bytes) => {
-        const blob = new Blob([bytes], { type: "application/pdf" });
-        const url = URL.createObjectURL(blob);
-        const filename = filenameFn();
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 30000);
-        btn.textContent = originalText;
-        btn.dataset.busy = "";
-        setStatus(`Downloaded "${filename}".`);
-      },
-      (err) => {
-        btn.textContent = originalText;
-        btn.dataset.busy = "";
-        setStatus("Couldn't build the download — " + describeError(err), true);
-      }
-    );
-  });
-}
+downloadConfirmBtn.addEventListener("click", () => {
+  if (!currentPdf || !originalBytes || downloadConfirmBtn.dataset.busy === "1") return;
 
-wireDownloadButton(
-  downloadPdfBtn,
-  buildAnnotatedPdfBytes,
-  () => suggestDownloadName(currentFileName),
-  "Preparing PDF with room data…"
-);
-wireDownloadButton(
-  downloadTracedPagesBtn,
-  buildTracedPagesOnlyPdfBytes,
-  () => suggestTracedPagesDownloadName(currentFileName),
-  "Preparing traced pages…"
-);
+  const pagesMode = document.querySelector('input[name="downloadPages"]:checked').value;
+  const includeSummary = downloadIncludeSummary.checked;
+
+  const originalText = downloadConfirmBtn.textContent;
+  downloadConfirmBtn.dataset.busy = "1";
+  downloadConfirmBtn.textContent = "Preparing…";
+  setStatus("Preparing PDF…");
+
+  buildDownloadPdfBytes({ pagesMode, includeSummary }).then(
+    (bytes) => {
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const filename = suggestDownloadName(currentFileName, pagesMode);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      downloadConfirmBtn.textContent = originalText;
+      downloadConfirmBtn.dataset.busy = "";
+      downloadOptionsForm.hidden = true;
+      setStatus(`Downloaded "${filename}".`);
+    },
+    (err) => {
+      downloadConfirmBtn.textContent = originalText;
+      downloadConfirmBtn.dataset.busy = "";
+      setStatus("Couldn't build the download — " + describeError(err), true);
+    }
+  );
+});

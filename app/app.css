@@ -146,7 +146,32 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
   border-radius: 4px;
   font-size: 13px;
 }
+.inline-form input[type="color"] {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
 .inline-form-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+.download-options-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.download-options-group > .muted { margin-bottom: 2px; }
+.download-options-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: normal;
+  margin-bottom: 0;
+}
 
 .scale-info {
   margin-top: 8px;
@@ -168,6 +193,14 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
 }
 .results-table tfoot td { border-top: 2px solid var(--brand); border-bottom: none; }
 .results-table .del-btn { padding: 2px 6px; }
+.results-table input[type="color"] {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+}
 
 .results-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .copy-fallback { width: 100%; height: 60px; margin-top: 8px; font-size: 12px; }
