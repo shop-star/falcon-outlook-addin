@@ -120,6 +120,7 @@ let traceTemp = { page: null, points: [] };
 // click elsewhere (or start calibrating/tracing) to deselect.
 let editingRoom = null; // room id, or null
 let vertexDragState = null; // { roomId, pointIndex, dragged }
+let labelDragState = null; // { roomId, dragged }
 
 // ---- DOM refs ----------------------------------------------------------
 const statusBarEl = document.getElementById("statusBar");
@@ -566,9 +567,10 @@ function redrawOverlay() {
   geo.rooms.forEach((room) => {
     const isEditing = room.id === editingRoom;
     const color = room.color || DEFAULT_ROOM_COLOR;
-    drawPolygon(room.points, color, roomLabelText(room), isEditing ? 3 : 2);
+    drawPolygon(room.points, color, roomLabelText(room), isEditing ? 3 : 2, room.labelPos);
     if (isEditing) {
       room.points.forEach((pt) => drawHandle(pt, color));
+      drawLabelHandle(room.labelPos || polygonCentroid(room.points), color);
     }
   });
 
@@ -609,6 +611,20 @@ function drawHandle(p, color) {
   overlayCtx.strokeStyle = color;
   overlayCtx.lineWidth = 2;
   overlayCtx.strokeRect(cx - size / 2, cy - size / 2, size, size);
+}
+
+// A hollow circle rather than drawHandle's square, so a selected room's
+// label handle reads as a distinct kind of drag target from its corners.
+function drawLabelHandle(p, color) {
+  const [cx, cy] = toCanvas(p);
+  const r = 6;
+  overlayCtx.beginPath();
+  overlayCtx.arc(cx, cy, r, 0, Math.PI * 2);
+  overlayCtx.fillStyle = "#ffffff";
+  overlayCtx.fill();
+  overlayCtx.strokeStyle = color;
+  overlayCtx.lineWidth = 2;
+  overlayCtx.stroke();
 }
 
 function drawLine(p1, p2, color, width, withMarkers, label) {
@@ -654,7 +670,11 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-function drawPolygon(points, color, label, lineWidth) {
+// labelPos, if given, overrides the default centroid placement — set by
+// dragging a room's label handle (see labelDragState). When that moved
+// position falls outside the room's own outline, a thin dashed line
+// connects it back to the room so it's still obviously that room's label.
+function drawPolygon(points, color, label, lineWidth, labelPos) {
   if (points.length < 3) return;
   overlayCtx.beginPath();
   const [x0, y0] = toCanvas(points[0]);
@@ -670,15 +690,24 @@ function drawPolygon(points, color, label, lineWidth) {
   overlayCtx.lineWidth = lineWidth || 2;
   overlayCtx.stroke();
 
-  const centroid = points.reduce(
-    (acc, p) => [acc[0] + p[0] / points.length, acc[1] + p[1] / points.length],
-    [0, 0]
-  );
-  const [cx, cy] = toCanvas(centroid);
-  // Label text stays a fixed dark colour regardless of the room's own
-  // colour — a light user-chosen colour would make a matching label hard
-  // to read, and the coloured outline/fill already identifies the room.
-  overlayCtx.fillStyle = "#0e453e";
+  const centroid = polygonCentroid(points);
+  const anchor = labelPos || centroid;
+
+  if (labelPos && !pointInPolygon(labelPos, points)) {
+    const [ax, ay] = toCanvas(anchor);
+    const [ccx, ccy] = toCanvas(centroid);
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(ax, ay);
+    overlayCtx.lineTo(ccx, ccy);
+    overlayCtx.strokeStyle = color;
+    overlayCtx.lineWidth = 1;
+    overlayCtx.setLineDash([4, 3]);
+    overlayCtx.stroke();
+    overlayCtx.setLineDash([]);
+  }
+
+  const [cx, cy] = toCanvas(anchor);
+  overlayCtx.fillStyle = color;
   overlayCtx.font = "13px Segoe UI, Arial, sans-serif";
   overlayCtx.textAlign = "center";
   overlayCtx.fillText(label, cx, cy);
@@ -688,6 +717,13 @@ function drawPolygon(points, color, label, lineWidth) {
 // ---- Geometry helpers -----------------------------------------------------
 function distance(p1, p2) {
   return Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+}
+
+function polygonCentroid(points) {
+  return points.reduce(
+    (acc, p) => [acc[0] + p[0] / points.length, acc[1] + p[1] / points.length],
+    [0, 0]
+  );
 }
 
 function polygonAreaPageUnits(points) {
@@ -742,6 +778,15 @@ function hitTestVertex(room, p) {
   return -1;
 }
 
+// A bit more forgiving than a vertex's, since the label handle sits over
+// actual text rather than a single point.
+const LABEL_HIT_RADIUS_PX = 14;
+
+function hitTestLabel(room, p) {
+  const anchor = room.labelPos || polygonCentroid(room.points);
+  return distance(anchor, p) <= LABEL_HIT_RADIUS_PX / renderScale;
+}
+
 // ---- Mode / tool state ----------------------------------------------------
 function resetToolState() {
   mode = "idle";
@@ -749,6 +794,7 @@ function resetToolState() {
   traceTemp = { page: null, points: [] };
   editingRoom = null;
   vertexDragState = null;
+  labelDragState = null;
   scaleRatioForm.hidden = true;
   calibrationForm.hidden = true;
   roomNameForm.hidden = true;
@@ -800,7 +846,11 @@ overlayCanvas.addEventListener("click", (evt) => {
     const hit = geo.rooms.slice().reverse().find((r) => pointInPolygon(p, r.points));
     editingRoom = hit ? hit.id : null;
     redrawOverlay();
-    setStatus(hit ? `Editing "${hit.name}" — drag its corner handles to reshape it.` : "");
+    setStatus(
+      hit
+        ? `Editing "${hit.name}" — drag its corner handles to reshape it, or the circle on its label to move it.`
+        : ""
+    );
   }
 });
 
@@ -816,7 +866,15 @@ overlayCanvas.addEventListener("mousedown", (evt) => {
     const geo = currentGeometry();
     const room = geo.rooms.find((r) => r.id === editingRoom);
     if (room) {
-      const idx = hitTestVertex(room, canvasPointFromEvent(evt));
+      const p = canvasPointFromEvent(evt);
+      // Checked before the vertices — the label handle usually sits well
+      // inside the room, away from the corners, so there's little real
+      // ambiguity in practice.
+      if (hitTestLabel(room, p)) {
+        labelDragState = { roomId: room.id, dragged: false };
+        return;
+      }
+      const idx = hitTestVertex(room, p);
       if (idx !== -1) {
         vertexDragState = { roomId: room.id, pointIndex: idx, dragged: false };
         return;
@@ -834,6 +892,17 @@ overlayCanvas.addEventListener("mousedown", (evt) => {
 });
 
 window.addEventListener("mousemove", (evt) => {
+  if (labelDragState) {
+    labelDragState.dragged = true;
+    const geo = currentGeometry();
+    const room = geo.rooms.find((r) => r.id === labelDragState.roomId);
+    if (room) {
+      room.labelPos = canvasPointFromEvent(evt);
+      redrawOverlay();
+    }
+    return;
+  }
+
   if (vertexDragState) {
     vertexDragState.dragged = true;
     const geo = currentGeometry();
@@ -859,6 +928,15 @@ window.addEventListener("mousemove", (evt) => {
 });
 
 window.addEventListener("mouseup", () => {
+  if (labelDragState) {
+    if (labelDragState.dragged) {
+      saveAutosave();
+      suppressNextClick = true;
+    }
+    labelDragState = null;
+    return;
+  }
+
   if (vertexDragState) {
     if (vertexDragState.dragged) {
       recalcAllAreasForPage(currentPageNum);
@@ -1236,21 +1314,37 @@ function drawRoomAnnotations(lib, pdfLibPage, geo, viewportAtScale1, font) {
   geo.rooms.forEach((room) => {
     if (room.points.length < 3) return;
     const color = hexToPdfRgb(lib, room.color || DEFAULT_ROOM_COLOR);
-    const pts = room.points.map((p) => {
+    const toPdfPoint = (p) => {
       const [x, y] = viewportAtScale1.convertToPdfPoint(p[0], p[1]);
       return { x, y };
-    });
+    };
+    const pts = room.points.map(toPdfPoint);
     for (let i = 0; i < pts.length; i++) {
       const a = pts[i];
       const b = pts[(i + 1) % pts.length];
       pdfLibPage.drawLine({ start: a, end: b, thickness: 1.5, color });
     }
-    const cx = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
-    const cy = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
+
+    // Same labelPos/leader-line logic as the canvas overlay (drawPolygon)
+    // — room.points and room.labelPos are both in pdf.js's scale-1 page
+    // space, so pointInPolygon works the same way here as it does there.
+    const centroidPage = polygonCentroid(room.points);
+    const anchorPage = room.labelPos || centroidPage;
+    const anchor = toPdfPoint(anchorPage);
+    if (room.labelPos && !pointInPolygon(room.labelPos, room.points)) {
+      pdfLibPage.drawLine({
+        start: anchor,
+        end: toPdfPoint(centroidPage),
+        thickness: 1,
+        color,
+        dashArray: [4, 3],
+      });
+    }
+
     const label = roomLabelText(room);
     pdfLibPage.drawText(label, {
-      x: cx - label.length * 2.3,
-      y: cy,
+      x: anchor.x - label.length * 2.3,
+      y: anchor.y,
       size: 9,
       font,
       color,
