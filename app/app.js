@@ -136,6 +136,9 @@ const pickFileBtn = document.getElementById("pickFileBtn");
 const fileInput = document.getElementById("fileInput");
 const zipPicker = document.getElementById("zipPicker");
 const zipPickerList = document.getElementById("zipPickerList");
+const currentFileInfo = document.getElementById("currentFileInfo");
+const currentFileNameEl = document.getElementById("currentFileNameEl");
+const changeFileBtn = document.getElementById("changeFileBtn");
 
 const viewerSectionEl = document.getElementById("viewerSection");
 const resultsSectionEl = document.getElementById("resultsSection");
@@ -177,6 +180,7 @@ const roomNameCancelBtn = document.getElementById("roomNameCancelBtn");
 
 const scaleInfoEl = document.getElementById("scaleInfo");
 
+const resultsPageSelect = document.getElementById("resultsPageSelect");
 const resultsBody = document.getElementById("resultsBody");
 const totalM2El = document.getElementById("totalM2");
 const copyResultsBtn = document.getElementById("copyResultsBtn");
@@ -324,6 +328,7 @@ dropZone.addEventListener("drop", (evt) => {
   if (file) handleFile(file);
 });
 pickFileBtn.addEventListener("click", () => fileInput.click());
+changeFileBtn.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
   const file = fileInput.files && fileInput.files[0];
   if (file) handleFile(file);
@@ -416,6 +421,10 @@ function openPdfFromBytes(fileName, bytes) {
           resultsSectionEl.hidden = false;
           downloadOptionsBtn.hidden = false;
           downloadOptionsForm.hidden = true;
+          dropZone.hidden = true;
+          currentFileInfo.hidden = false;
+          currentFileNameEl.textContent = fileName;
+          populatePageSelect(pdf.numPages);
           renderPage();
           updateResultsTable();
           setStatus(`Loaded "${fileName}". Set the scale, then trace each room.`);
@@ -565,11 +574,33 @@ function renderPage(onResized) {
     );
 
     pageIndicatorEl.textContent = `Page ${currentPageNum} / ${currentPdf.numPages}`;
+    resultsPageSelect.value = String(currentPageNum);
     zoomIndicatorEl.textContent = `${Math.round((renderScale / 1.5) * 100)}%`;
     prevPageBtn.disabled = currentPageNum <= 1;
     nextPageBtn.disabled = currentPageNum >= currentPdf.numPages;
   });
 }
+
+// Populated once per opened file (numPages is fixed for that file) so
+// section 3's "Go to page" selector always lists every real page, not just
+// the ones with a traced room on them.
+function populatePageSelect(numPages) {
+  resultsPageSelect.innerHTML = "";
+  for (let i = 1; i <= numPages; i++) {
+    const opt = document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = `Page ${i}`;
+    resultsPageSelect.appendChild(opt);
+  }
+}
+
+resultsPageSelect.addEventListener("change", () => {
+  const pageNum = Number(resultsPageSelect.value);
+  if (!currentPdf || pageNum === currentPageNum) return;
+  resetToolState();
+  currentPageNum = pageNum;
+  renderPage();
+});
 
 function currentGeometry() {
   if (!pageGeometry[currentPageNum]) {
@@ -1210,6 +1241,30 @@ zoomOutBtn.addEventListener("click", () => {
   renderPage();
 });
 
+// Clicking a room row (see updateResultsTable) jumps the viewer to that
+// room's page and selects it, same as clicking its outline on the canvas —
+// resetToolState() first so any in-progress trace/calibration on the page
+// being left doesn't linger, and editingRoom is set *after* it (which would
+// otherwise clear it) so the room is already selected by the time the new
+// page's render finishes and calls redrawOverlay().
+function goToRoom(id, pageNum) {
+  resetToolState();
+  if (pageNum !== currentPageNum) {
+    currentPageNum = pageNum;
+    editingRoom = id;
+    renderPage();
+  } else {
+    editingRoom = id;
+    redrawOverlay();
+  }
+  const flatRoom = rooms.find((r) => r.id === id);
+  setStatus(
+    flatRoom
+      ? `Editing "${flatRoom.name}" — drag its corner handles to reshape it, or the circle on its label to move it.`
+      : ""
+  );
+}
+
 // ---- 3. Results table ----------------------------------------------------
 function updateResultsTable() {
   resultsBody.innerHTML = "";
@@ -1259,6 +1314,14 @@ function updateResultsTable() {
     tr.appendChild(pageTd);
     tr.appendChild(m2Td);
     tr.appendChild(delTd);
+    // Ignore clicks that landed on one of the row's own interactive
+    // controls (colour swatch, name input, delete button) — those already
+    // have their own handlers, and jumping pages out from under a click
+    // meant to edit the name/colour would be surprising.
+    tr.addEventListener("click", (evt) => {
+      if (evt.target.closest("input, button")) return;
+      goToRoom(r.id, r.page);
+    });
     resultsBody.appendChild(tr);
   });
 

@@ -114,6 +114,25 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
 }
 .drop-zone p { margin: 0 0 10px; }
 
+.current-file-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-muted);
+}
+.current-file-info .muted { margin: 0; }
+.current-file-name {
+  margin: 0;
+  font-weight: 600;
+  color: var(--brand-dark);
+  word-break: break-all;
+}
+#changeFileBtn { margin-left: auto; font-size: 12px; padding: 4px 10px; }
+
 .zip-picker { margin-top: 12px; }
 .zip-picker-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .zip-picker-list button { text-align: left; }
@@ -210,6 +229,20 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
 }
 
 /* ---- Results ---- */
+.page-jump {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.page-jump select {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
 .results-table {
   width: 100%;
   border-collapse: collapse;
@@ -221,6 +254,8 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
   padding: 5px 6px;
   border-bottom: 1px solid var(--border);
 }
+.results-table tbody tr { cursor: pointer; }
+.results-table tbody tr:hover { background: var(--bg-muted); }
 .results-table tfoot td { border-top: 2px solid var(--brand); border-bottom: none; }
 .results-table .del-btn { padding: 2px 6px; }
 .results-table input[type="color"] {

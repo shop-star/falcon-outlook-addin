@@ -93,7 +93,8 @@ ribbon.
    email's subject, attachment names, and any links found in the body.
 2. Save the PDF attachment from Outlook's own UI (or download it from one
    of the listed links), then drag it into the app (or a zip containing
-   it).
+   it). Once a plan is open, section 1 shrinks down to just its file name
+   and an **Open a different file** button.
 3. Click **Set scale**, then either click the two ends of a labelled
    dimension or the plan's scale bar and enter its real length and unit
    when prompted, or — if you already know it — just type the page's
@@ -114,8 +115,11 @@ ribbon.
    label always show the area (e.g. "Bedroom — 16.59 m²"), and you can
    change a room's name or colour anytime directly in the results table.
 5. Read the running list and total in the **Floor areas** section (it
-   updates live as you trace), and use **Copy results** to paste a
-   tab-separated list into Excel or your quote. **Download PDF** opens a
+   updates live as you trace) — click anywhere on a room's row to jump
+   straight to its page in the viewer above and select it for editing, or
+   use the **Go to page** dropdown at the top of this section to jump to
+   any page directly. Use **Copy results** to paste a tab-separated list
+   into Excel or your quote. **Download PDF** opens a
    small panel of options: which pages to include (just the current page,
    the whole document, or only the pages with a traced room on them) and
    whether to append a summary page listing every room and its area (on by

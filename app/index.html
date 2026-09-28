@@ -34,6 +34,11 @@
       <button id="pickFileBtn" class="primary">Choose a file</button>
       <input id="fileInput" type="file" accept=".pdf,.zip,application/pdf,application/zip" hidden />
     </div>
+    <div id="currentFileInfo" class="current-file-info" hidden>
+      <p class="muted">Currently open:</p>
+      <p id="currentFileNameEl" class="current-file-name"></p>
+      <button id="changeFileBtn">Open a different file</button>
+    </div>
     <div id="zipPicker" class="zip-picker" hidden>
       <p class="muted">That zip has more than one PDF — pick which one to open:</p>
       <div id="zipPickerList" class="zip-picker-list"></div>
@@ -131,6 +136,10 @@
 
   <section id="resultsSection" class="panel" hidden>
     <h2>3. Floor areas</h2>
+    <div class="page-jump">
+      <label for="resultsPageSelect">Go to page:</label>
+      <select id="resultsPageSelect"></select>
+    </div>
     <table id="resultsTable" class="results-table">
       <thead>
         <tr>
