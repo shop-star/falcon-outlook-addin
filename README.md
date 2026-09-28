@@ -108,16 +108,24 @@ ribbon.
    to set the scale once per page). To fix up a room afterward, click its
    outline (when you're not actively tracing or setting scale) to select
    it, then drag its corner handles to reshape it — the area updates as you
-   drag. Both the room's outline on the plan and its label always show the
-   area (e.g. "Bedroom — 16.59 m²"), and you can change a room's colour
-   anytime from the swatch next to it in the results table.
+   drag — or drag the circle on its label to reposition the label itself
+   (even outside the room, which draws a thin line back to it so it's still
+   clearly that room's label). Both the room's outline on the plan and its
+   label always show the area (e.g. "Bedroom — 16.59 m²"), and you can
+   change a room's name or colour anytime directly in the results table.
 5. Read the running list and total in the **Floor areas** section (it
    updates live as you trace), and use **Copy results** to paste a
    tab-separated list into Excel or your quote. **Download PDF** opens a
-   small panel of options: which pages to include (all of them, or just the
-   ones with a traced room on them) and whether to append a summary page
-   listing every room and its area (on by default) — then click
-   **Download**.
+   small panel of options: which pages to include (just the current page,
+   the whole document, or only the pages with a traced room on them) and
+   whether to append a summary page listing every room and its area (on by
+   default) — then click **Download**.
+
+If the plan and the floor-areas list feel cramped stacked on top of each
+other, the **Layout** control at the top of the page switches to putting
+**1. Open a plan** and **3. Floor areas** in a narrower column on the left,
+with the plan viewer filling the rest of the width — pick whichever suits
+your screen; it's remembered next time you open the app.
 
 Your scale and traced rooms are saved automatically as you work, to your
 browser's local storage for that exact file (by name and size) — reopening

@@ -10,6 +10,11 @@
   <header class="app-header">
     <h1>Floor Area Takeoff</h1>
     <p class="subtitle">Open a PDF plan, set the scale, then trace each room.</p>
+    <div class="layout-toggle" role="group" aria-label="Page layout">
+      <span class="muted">Layout:</span>
+      <button id="layoutStackedBtn" type="button" class="layout-btn">Stacked</button>
+      <button id="layoutSidebarBtn" type="button" class="layout-btn">1 &amp; 3 on the left</button>
+    </div>
   </header>
 
   <section id="fromEmailPanel" class="panel" hidden>
@@ -21,6 +26,7 @@
 
   <section id="statusBar" class="status-bar" role="status" aria-live="polite"></section>
 
+  <div id="mainLayout">
   <section id="intakeSection" class="panel">
     <h2>1. Open a plan</h2>
     <div id="dropZone" class="drop-zone">
@@ -156,7 +162,8 @@
     <div id="downloadOptionsForm" class="inline-form" hidden>
       <div class="download-options-group">
         <span class="muted">Pages to include:</span>
-        <label><input type="radio" name="downloadPages" value="all" checked /> All pages</label>
+        <label><input type="radio" name="downloadPages" value="current" /> Just the current page</label>
+        <label><input type="radio" name="downloadPages" value="all" checked /> Whole document</label>
         <label><input type="radio" name="downloadPages" value="traced" /> Only pages with tracings</label>
       </div>
       <div class="download-options-group">
@@ -172,6 +179,7 @@
     </div>
     <textarea id="copyFallback" class="copy-fallback" hidden></textarea>
   </section>
+  </div>
 
   <script src="app.js?v=__CACHEBUST__"></script>
 </body>

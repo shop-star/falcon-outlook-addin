@@ -126,6 +126,10 @@ let labelDragState = null; // { roomId, dragged }
 const statusBarEl = document.getElementById("statusBar");
 const fileNameHeadingEl = document.getElementById("fileNameHeading");
 
+const mainLayoutEl = document.getElementById("mainLayout");
+const layoutStackedBtn = document.getElementById("layoutStackedBtn");
+const layoutSidebarBtn = document.getElementById("layoutSidebarBtn");
+
 const intakeSectionEl = document.getElementById("intakeSection");
 const dropZone = document.getElementById("dropZone");
 const pickFileBtn = document.getElementById("pickFileBtn");
@@ -270,6 +274,37 @@ function initFromEmailPanel() {
   }
 }
 initFromEmailPanel();
+
+// ---- Layout toggle: stacked (default) vs. 1+3 on the left -----------------
+const LAYOUT_STORAGE_KEY = "floorAreaTakeoff:layout";
+
+function applyLayout(layout) {
+  mainLayoutEl.classList.toggle("layout-sidebar", layout === "sidebar");
+  layoutStackedBtn.classList.toggle("active", layout !== "sidebar");
+  layoutSidebarBtn.classList.toggle("active", layout === "sidebar");
+}
+
+function setLayout(layout) {
+  applyLayout(layout);
+  try {
+    localStorage.setItem(LAYOUT_STORAGE_KEY, layout);
+  } catch (e) {
+    // Storage unavailable — the choice just won't persist past this session.
+  }
+}
+
+layoutStackedBtn.addEventListener("click", () => setLayout("stacked"));
+layoutSidebarBtn.addEventListener("click", () => setLayout("sidebar"));
+
+(function initLayout() {
+  let saved = null;
+  try {
+    saved = localStorage.getItem(LAYOUT_STORAGE_KEY);
+  } catch (e) {
+    // Ignore — falls back to the default below.
+  }
+  applyLayout(saved === "sidebar" ? "sidebar" : "stacked");
+})();
 
 // ---- 1. File intake: drag-and-drop, file picker, and zip extraction -------
 ["dragenter", "dragover"].forEach((evtName) =>
@@ -1192,7 +1227,18 @@ function updateResultsTable() {
     colorTd.appendChild(colorInput);
 
     const nameTd = document.createElement("td");
-    nameTd.textContent = r.name;
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.className = "room-name-input";
+    nameInput.value = r.name;
+    nameInput.title = "Room name";
+    nameInput.addEventListener("change", () => {
+      nameInput.value = updateRoomName(r.id, nameInput.value);
+    });
+    nameInput.addEventListener("keydown", (evt) => {
+      if (evt.key === "Enter") nameInput.blur();
+    });
+    nameTd.appendChild(nameInput);
 
     const pageTd = document.createElement("td");
     pageTd.textContent = r.page;
@@ -1245,6 +1291,21 @@ function updateRoomColor(id, color) {
   saveAutosave();
 }
 
+// Same pattern as updateRoomColor — kept in sync on both the flat list and
+// the per-page geometry, and deliberately skips updateResultsTable() so the
+// row isn't rebuilt out from under the input the user just typed into.
+function updateRoomName(id, name) {
+  const trimmed = name.trim() || "Room";
+  const flatRoom = rooms.find((r) => r.id === id);
+  if (flatRoom) flatRoom.name = trimmed;
+  const geo = pageGeometry[flatRoom ? flatRoom.page : currentPageNum];
+  const geoRoom = geo && geo.rooms.find((r) => r.id === id);
+  if (geoRoom) geoRoom.name = trimmed;
+  redrawOverlay();
+  saveAutosave();
+  return trimmed;
+}
+
 copyResultsBtn.addEventListener("click", () => {
   let text = "Room\tPage\tm²\n";
   rooms.forEach((r) => {
@@ -1292,9 +1353,11 @@ clearAllBtn.addEventListener("click", () => {
 // the exact editable state — whether it kept every original page or only
 // the traced ones (see buildDownloadPdfBytes for how the embedded page
 // numbers get re-keyed to match whatever pages actually ended up in it).
-function suggestDownloadName(name, pagesMode) {
+function suggestDownloadName(name, pagesMode, targetPageNum) {
   const base = (name || "floor-plan").replace(/\.pdf$/i, "");
-  return pagesMode === "traced" ? `${base}-traced-pages.pdf` : `${base}-with-rooms.pdf`;
+  if (pagesMode === "traced") return `${base}-traced-pages.pdf`;
+  if (pagesMode === "current") return `${base}-page-${targetPageNum}.pdf`;
+  return `${base}-with-rooms.pdf`;
 }
 
 function hexToPdfRgb(lib, hex) {
@@ -1352,11 +1415,14 @@ function drawRoomAnnotations(lib, pdfLibPage, geo, viewportAtScale1, font) {
   });
 }
 
-// A plain, paginating table of every room and its area appended to the end
-// of the document — header row, one row per room, a total row, starting a
-// fresh page whenever the current one runs out of room. Uses the same page
-// size as the plan itself so it sits consistently alongside it.
-async function addSummaryPages(lib, outDoc, pageWidth, pageHeight) {
+// A plain, paginating table of the given rooms and their areas appended to
+// the end of the document — header row, one row per room, a total row,
+// starting a fresh page whenever the current one runs out of room. Uses the
+// same page size as the plan itself so it sits consistently alongside it.
+// `summaryRooms` is every room for a whole-document/traced-pages download,
+// or just the rooms on the kept page for a current-page-only download —
+// listing rooms that aren't even in this file would be confusing.
+async function addSummaryPages(lib, outDoc, pageWidth, pageHeight, summaryRooms) {
   const font = await outDoc.embedFont(lib.StandardFonts.Helvetica);
   const boldFont = await outDoc.embedFont(lib.StandardFonts.HelveticaBold);
   const black = lib.rgb(0, 0, 0);
@@ -1390,7 +1456,7 @@ async function addSummaryPages(lib, outDoc, pageWidth, pageHeight) {
   startPage(true);
 
   let total = 0;
-  rooms.forEach((r) => {
+  summaryRooms.forEach((r) => {
     if (y < margin + rowHeight * 2) startPage(false);
     page.drawText(r.name, { x: colX.name, y, size: 10, font, color: black });
     page.drawText(String(r.page), { x: colX.page, y, size: 10, font, color: black });
@@ -1419,11 +1485,12 @@ async function addSummaryPages(lib, outDoc, pageWidth, pageHeight) {
 // what makes a reopened copy of either kind restore correctly: its
 // embedded data always describes the pages actually in that file.
 // includeSummary appends the floor-areas table as extra page(s) either way.
-async function buildDownloadPdfBytes({ pagesMode, includeSummary }) {
+async function buildDownloadPdfBytes({ pagesMode, includeSummary, targetPageNum }) {
   const lib = await loadPdfLib();
   let outDoc;
   let pageEntries; // [{ origPageNum, pdfLibPage }], in the order they end up in outDoc
   let geometryForEmbed;
+  let summaryRooms = rooms;
 
   if (pagesMode === "traced") {
     const tracedPageNums = Object.keys(pageGeometry)
@@ -1448,6 +1515,16 @@ async function buildDownloadPdfBytes({ pagesMode, includeSummary }) {
     pageEntries.forEach((entry, i) => {
       geometryForEmbed[i + 1] = pageGeometry[entry.origPageNum];
     });
+  } else if (pagesMode === "current") {
+    const origPageNum = targetPageNum;
+    const srcDoc = await lib.PDFDocument.load(originalBytes.slice());
+    outDoc = await lib.PDFDocument.create();
+    const [copiedPage] = await outDoc.copyPages(srcDoc, [origPageNum - 1]);
+    outDoc.addPage(copiedPage);
+
+    pageEntries = [{ origPageNum, pdfLibPage: copiedPage }];
+    geometryForEmbed = pageGeometry[origPageNum] ? { 1: pageGeometry[origPageNum] } : {};
+    summaryRooms = rooms.filter((r) => r.page === origPageNum);
   } else {
     outDoc = await lib.PDFDocument.load(originalBytes.slice());
     pageEntries = outDoc.getPages().map((pdfLibPage, i) => ({ origPageNum: i + 1, pdfLibPage }));
@@ -1474,7 +1551,7 @@ async function buildDownloadPdfBytes({ pagesMode, includeSummary }) {
 
   if (includeSummary) {
     const refPage = outDoc.getPages()[0];
-    await addSummaryPages(lib, outDoc, refPage.getWidth(), refPage.getHeight());
+    await addSummaryPages(lib, outDoc, refPage.getWidth(), refPage.getHeight(), summaryRooms);
   }
 
   return outDoc.save();
@@ -1498,17 +1575,22 @@ downloadConfirmBtn.addEventListener("click", () => {
 
   const pagesMode = document.querySelector('input[name="downloadPages"]:checked').value;
   const includeSummary = downloadIncludeSummary.checked;
+  // Captured now, synchronously, rather than read back out of currentPageNum
+  // once the async build below finishes — the user could navigate pages
+  // while "Preparing…" is showing, and this download is about the page
+  // they were on when they clicked, not whatever page is current later.
+  const targetPageNum = currentPageNum;
 
   const originalText = downloadConfirmBtn.textContent;
   downloadConfirmBtn.dataset.busy = "1";
   downloadConfirmBtn.textContent = "Preparing…";
   setStatus("Preparing PDF…");
 
-  buildDownloadPdfBytes({ pagesMode, includeSummary }).then(
+  buildDownloadPdfBytes({ pagesMode, includeSummary, targetPageNum }).then(
     (bytes) => {
       const blob = new Blob([bytes], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
-      const filename = suggestDownloadName(currentFileName, pagesMode);
+      const filename = suggestDownloadName(currentFileName, pagesMode, targetPageNum);
       const a = document.createElement("a");
       a.href = url;
       a.download = filename;
