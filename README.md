@@ -99,9 +99,11 @@ ribbon.
    dimension or the plan's scale bar and enter its real length and unit
    when prompted, or — if you already know it — just type the page's
    printed scale (e.g. `1:100`) into the box below and click **Use this
-   scale**. The typed-scale shortcut assumes the PDF's page size matches
-   the real sheet size (i.e. it wasn't resized on export); if areas come
-   out wrong, use the click-and-measure method instead.
+   scale** (or click one of the **1:50 / 1:100 / 1:200** preset buttons for
+   an instant one-click set). The typed-scale shortcut assumes the PDF's
+   page size matches the real sheet size (i.e. it wasn't resized on
+   export); if areas come out wrong, use the click-and-measure method
+   instead.
 4. Click **Trace room**, click around a room's outline corner by corner,
    then **Finish room**, give it a name, and pick its colour (a different
    one is suggested each time, but pick your own if you like). Repeat for
@@ -115,15 +117,17 @@ ribbon.
    label always show the area (e.g. "Bedroom — 16.59 m²"), and you can
    change a room's name or colour anytime directly in the results table.
 5. Read the running list and total in the **Floor areas** section (it
-   updates live as you trace) — click anywhere on a room's row to jump
+   updates live as you trace, and also shows each room's page and the
+   scale that was set on it) — click anywhere on a room's row to jump
    straight to its page in the viewer above and select it for editing, or
    use the **Go to page** dropdown at the top of this section to jump to
    any page directly. Use **Copy results** to paste a tab-separated list
-   into Excel or your quote. **Download PDF** opens a
-   small panel of options: which pages to include (just the current page,
-   the whole document, or only the pages with a traced room on them) and
+   into Excel or your quote.
+6. The **Download** section underneath is always there, no button to open
+   it first — pick which pages to include (just the current page, the
+   whole document, or only the pages with a traced room on them) and
    whether to append a summary page listing every room and its area (on by
-   default) — then click **Download**.
+   default), then click **Download**.
 
 If the plan and the floor-areas list feel cramped stacked on top of each
 other, the **Layout** control at the top of the page switches to putting

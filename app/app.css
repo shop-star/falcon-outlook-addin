@@ -42,12 +42,14 @@ h2 { font-size: 14px; margin: 0 0 8px; color: var(--brand-dark); }
 }
 #mainLayout.layout-sidebar #intakeSection { grid-column: 1; grid-row: 1; }
 #mainLayout.layout-sidebar #resultsSection { grid-column: 1; grid-row: 2; }
-#mainLayout.layout-sidebar #viewerSection { grid-column: 2; grid-row: 1 / span 2; }
+#mainLayout.layout-sidebar #downloadSection { grid-column: 1; grid-row: 3; }
+#mainLayout.layout-sidebar #viewerSection { grid-column: 2; grid-row: 1 / span 3; }
 
 @media (max-width: 900px) {
   #mainLayout.layout-sidebar { display: block; }
   #mainLayout.layout-sidebar #intakeSection,
   #mainLayout.layout-sidebar #resultsSection,
+  #mainLayout.layout-sidebar #downloadSection,
   #mainLayout.layout-sidebar #viewerSection {
     grid-column: auto;
     grid-row: auto;
@@ -181,6 +183,14 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
 }
 .inline-form label { display: block; font-size: 13px; margin-bottom: 6px; }
 .inline-form-row { display: flex; gap: 8px; margin-top: 4px; max-width: 320px; }
+.scale-presets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.scale-preset-btn { font-size: 12px; padding: 4px 10px; }
 .inline-form input[type="number"],
 .inline-form input[type="text"] {
   flex: 1;

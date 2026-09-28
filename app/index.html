@@ -85,6 +85,12 @@
           <input id="scaleRatioInput" type="text" placeholder="e.g. 1:100" />
         </div>
       </label>
+      <div class="scale-presets">
+        <span class="muted">Or pick a common scale:</span>
+        <button type="button" class="scale-preset-btn" data-scale="50">1:50</button>
+        <button type="button" class="scale-preset-btn" data-scale="100">1:100</button>
+        <button type="button" class="scale-preset-btn" data-scale="200">1:200</button>
+      </div>
       <div class="inline-form-actions">
         <button id="scaleRatioConfirmBtn" class="primary">Use this scale</button>
       </div>
@@ -146,6 +152,7 @@
           <th></th>
           <th>Room</th>
           <th>Page</th>
+          <th>Scale</th>
           <th>m²</th>
           <th></th>
         </tr>
@@ -156,6 +163,7 @@
           <td></td>
           <td><strong>Total</strong></td>
           <td></td>
+          <td></td>
           <td id="totalM2"><strong>0.00</strong></td>
           <td></td>
         </tr>
@@ -163,30 +171,26 @@
     </table>
     <div class="results-actions">
       <button id="copyResultsBtn">Copy results</button>
-      <button id="downloadOptionsBtn" class="primary" hidden>Download PDF</button>
       <button id="clearAllBtn">Clear all</button>
     </div>
-
-    <!-- Inline download-options form, revealed by downloadOptionsBtn -->
-    <div id="downloadOptionsForm" class="inline-form" hidden>
-      <div class="download-options-group">
-        <span class="muted">Pages to include:</span>
-        <label><input type="radio" name="downloadPages" value="current" /> Just the current page</label>
-        <label><input type="radio" name="downloadPages" value="all" checked /> Whole document</label>
-        <label><input type="radio" name="downloadPages" value="traced" /> Only pages with tracings</label>
-      </div>
-      <div class="download-options-group">
-        <label>
-          <input type="checkbox" id="downloadIncludeSummary" checked />
-          Include a summary page with the floor areas table
-        </label>
-      </div>
-      <div class="inline-form-actions">
-        <button id="downloadConfirmBtn" class="primary">Download</button>
-        <button id="downloadOptionsCancelBtn">Cancel</button>
-      </div>
-    </div>
     <textarea id="copyFallback" class="copy-fallback" hidden></textarea>
+  </section>
+
+  <section id="downloadSection" class="panel" hidden>
+    <h2>4. Download</h2>
+    <div class="download-options-group">
+      <span class="muted">Pages to include:</span>
+      <label><input type="radio" name="downloadPages" value="current" /> Just the current page</label>
+      <label><input type="radio" name="downloadPages" value="all" checked /> Whole document</label>
+      <label><input type="radio" name="downloadPages" value="traced" /> Only pages with tracings</label>
+    </div>
+    <div class="download-options-group">
+      <label>
+        <input type="checkbox" id="downloadIncludeSummary" checked />
+        Include a summary page with the floor areas table
+      </label>
+    </div>
+    <button id="downloadConfirmBtn" class="primary">Download</button>
   </section>
   </div>
 

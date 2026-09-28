@@ -184,11 +184,9 @@ const resultsPageSelect = document.getElementById("resultsPageSelect");
 const resultsBody = document.getElementById("resultsBody");
 const totalM2El = document.getElementById("totalM2");
 const copyResultsBtn = document.getElementById("copyResultsBtn");
-const downloadOptionsBtn = document.getElementById("downloadOptionsBtn");
-const downloadOptionsForm = document.getElementById("downloadOptionsForm");
+const downloadSectionEl = document.getElementById("downloadSection");
 const downloadIncludeSummary = document.getElementById("downloadIncludeSummary");
 const downloadConfirmBtn = document.getElementById("downloadConfirmBtn");
-const downloadOptionsCancelBtn = document.getElementById("downloadOptionsCancelBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const copyFallback = document.getElementById("copyFallback");
 
@@ -419,8 +417,7 @@ function openPdfFromBytes(fileName, bytes) {
           fileNameHeadingEl.textContent = `2. Set scale, then trace rooms — "${fileName}"`;
           viewerSectionEl.hidden = false;
           resultsSectionEl.hidden = false;
-          downloadOptionsBtn.hidden = false;
-          downloadOptionsForm.hidden = true;
+          downloadSectionEl.hidden = false;
           dropZone.hidden = true;
           currentFileInfo.hidden = false;
           currentFileNameEl.textContent = fileName;
@@ -1093,12 +1090,9 @@ function parseScaleRatio(text) {
 }
 const METERS_PER_POINT = 0.0254 / 72;
 
-scaleRatioConfirmBtn.addEventListener("click", () => {
-  const n = parseScaleRatio(scaleRatioInput.value);
-  if (!n) {
-    setStatus("Enter a scale like 1:100.", true);
-    return;
-  }
+// Shared by the free-text ratio input and the one-click preset buttons
+// (1:50/1:100/1:200) below — both just need to apply a given ratio.
+function applyScaleRatio(n) {
   const geo = currentGeometry();
   geo.calibration = {
     p1: null,
@@ -1113,6 +1107,19 @@ scaleRatioConfirmBtn.addEventListener("click", () => {
   recalcAllAreasForPage(currentPageNum);
   saveAutosave();
   setStatus(`Scale set to 1:${n} for this page. Click “Trace room” to start on the first room.`);
+}
+
+scaleRatioConfirmBtn.addEventListener("click", () => {
+  const n = parseScaleRatio(scaleRatioInput.value);
+  if (!n) {
+    setStatus("Enter a scale like 1:100.", true);
+    return;
+  }
+  applyScaleRatio(n);
+});
+
+document.querySelectorAll(".scale-preset-btn").forEach((btn) => {
+  btn.addEventListener("click", () => applyScaleRatio(Number(btn.dataset.scale)));
 });
 
 calibConfirmBtn.addEventListener("click", () => {
@@ -1298,6 +1305,12 @@ function updateResultsTable() {
     const pageTd = document.createElement("td");
     pageTd.textContent = r.page;
 
+    // Read live off that page's own calibration rather than stored on the
+    // room, so it can't go stale if the page's scale is ever re-set.
+    const scaleTd = document.createElement("td");
+    const pageGeo = pageGeometry[r.page];
+    scaleTd.textContent = pageGeo && pageGeo.calibration ? pageGeo.calibration.label : "—";
+
     const m2Td = document.createElement("td");
     m2Td.textContent = r.areaM2.toFixed(2);
 
@@ -1312,6 +1325,7 @@ function updateResultsTable() {
     tr.appendChild(colorTd);
     tr.appendChild(nameTd);
     tr.appendChild(pageTd);
+    tr.appendChild(scaleTd);
     tr.appendChild(m2Td);
     tr.appendChild(delTd);
     // Ignore clicks that landed on one of the row's own interactive
@@ -1625,14 +1639,6 @@ async function buildDownloadPdfBytes({ pagesMode, includeSummary, targetPageNum 
 // download> perfectly normally, even after the async build work below —
 // this is an ordinary, well-supported web pattern here, not the two-phase
 // dance the add-in needed.
-downloadOptionsBtn.addEventListener("click", () => {
-  downloadOptionsForm.hidden = false;
-});
-
-downloadOptionsCancelBtn.addEventListener("click", () => {
-  downloadOptionsForm.hidden = true;
-});
-
 downloadConfirmBtn.addEventListener("click", () => {
   if (!currentPdf || !originalBytes || downloadConfirmBtn.dataset.busy === "1") return;
 
@@ -1663,7 +1669,6 @@ downloadConfirmBtn.addEventListener("click", () => {
       setTimeout(() => URL.revokeObjectURL(url), 30000);
       downloadConfirmBtn.textContent = originalText;
       downloadConfirmBtn.dataset.busy = "";
-      downloadOptionsForm.hidden = true;
       setStatus(`Downloaded "${filename}".`);
     },
     (err) => {
