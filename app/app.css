@@ -270,13 +270,9 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
 }
 
 /* ---- Results ---- */
-.page-jump {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  font-size: 13px;
-}
+/* .page-jump now lives inside the viewer's toolbar (a .toolbar-group
+   itself), so it only needs to add what that doesn't already give it. */
+.page-jump { font-size: 13px; }
 .page-jump select {
   padding: 4px 6px;
   border: 1px solid var(--border);
