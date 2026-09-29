@@ -275,9 +275,17 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
 }
 
 /* ---- Results ---- */
-/* .page-jump now lives inside the viewer's toolbar (a .toolbar-group
-   itself), so it only needs to add what that doesn't already give it. */
-.page-jump { font-size: 13px; }
+/* .page-jump shares the page-navigation toolbar-group's own border/padding
+   (rather than having one of its own) — this thin left border is just an
+   internal divider between the prev/next controls and the page picker. */
+.page-jump {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
 .page-jump select {
   padding: 4px 6px;
   border: 1px solid var(--border);
