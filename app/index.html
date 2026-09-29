@@ -105,19 +105,19 @@
     <h2 id="fileNameHeading">3. Trace rooms</h2>
 
     <div class="toolbar">
-      <div class="toolbar-group">
+      <div class="toolbar-group toolbar-group-bordered">
         <button id="prevPageBtn" title="Previous page">◀</button>
         <span id="pageIndicator">Page 1 / 1</span>
         <button id="nextPageBtn" title="Next page">▶</button>
       </div>
-      <div class="toolbar-group">
-        <button id="zoomOutBtn" title="Zoom out">−</button>
-        <span id="zoomIndicator">150%</span>
-        <button id="zoomInBtn" title="Zoom in">+</button>
-      </div>
       <div class="toolbar-group page-jump">
         <label for="resultsPageSelect">Go to page:</label>
         <select id="resultsPageSelect"></select>
+      </div>
+      <div class="toolbar-group toolbar-group-bordered">
+        <button id="zoomOutBtn" title="Zoom out">−</button>
+        <span id="zoomIndicator">150%</span>
+        <button id="zoomInBtn" title="Zoom in">+</button>
       </div>
     </div>
 
@@ -156,8 +156,8 @@
     <div class="download-options-group">
       <span class="muted">Pages to include:</span>
       <label><input type="radio" name="downloadPages" value="current" /> Just the current page</label>
-      <label><input type="radio" name="downloadPages" value="all" checked /> Whole document</label>
       <label><input type="radio" name="downloadPages" value="traced" /> Only pages with tracings</label>
+      <label><input type="radio" name="downloadPages" value="all" checked /> Whole document</label>
     </div>
     <div class="download-options-group">
       <label>
