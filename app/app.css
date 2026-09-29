@@ -151,6 +151,12 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
   border-radius: 4px;
   background: var(--bg-muted);
 }
+/* Without this, the [hidden] attribute has no visible effect here — an
+   author rule that unconditionally sets `display` (like the one above)
+   beats the browser's own built-in `[hidden] { display: none }` rule at
+   equal specificity, since author styles always win over user-agent
+   styles regardless of source order. */
+.current-file-info[hidden] { display: none; }
 .current-file-info .muted { margin: 0; }
 .current-file-name {
   margin: 0;

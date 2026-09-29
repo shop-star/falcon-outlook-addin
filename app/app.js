@@ -344,7 +344,7 @@ loadPersistedFile()
   })
   .catch(() => {});
 
-// ---- Layout toggle: stacked (default) vs. 1, 2 & 4 on the left -------------
+// ---- Layout toggle: stacked (default) vs. "Columns" (1, 2 & 4 narrowed) ---
 const LAYOUT_STORAGE_KEY = "floorAreaTakeoff:layout";
 
 function applyLayout(layout) {
