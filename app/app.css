@@ -33,24 +33,49 @@ h2 { font-size: 14px; margin: 0 0 8px; color: var(--brand-dark); }
   color: #fff;
 }
 
-/* ---- Main layout: stacked (default) or sections 1+3 on the left ---- */
-#mainLayout.layout-sidebar {
+/* ---- Main layout ----------------------------------------------------
+   The results pane is always a persistent column on the right, in both
+   layout modes — it's not part of the numbered 1-4 workflow, so it never
+   moves. What the "Stacked" / "1, 2 & 4 on the left" toggle controls is
+   only how the numbered flow on the left arranges itself: fully stacked
+   in one column, or with the short sections (1, 2, 4) narrowed into their
+   own column so the trace-room viewer (3) gets more width. */
+#mainLayout {
   display: grid;
-  grid-template-columns: minmax(280px, 380px) 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
   align-items: start;
   gap: 14px;
 }
+#mainLayout #intakeSection { grid-column: 1; grid-row: 1; }
+#mainLayout #scaleSection { grid-column: 1; grid-row: 2; }
+#mainLayout #viewerSection { grid-column: 1; grid-row: 3; }
+#mainLayout #downloadSection { grid-column: 1; grid-row: 4; }
+#mainLayout #resultsPane { grid-column: 2; grid-row: 1 / span 4; }
+
+#mainLayout.layout-sidebar {
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr) minmax(300px, 380px);
+}
 #mainLayout.layout-sidebar #intakeSection { grid-column: 1; grid-row: 1; }
-#mainLayout.layout-sidebar #resultsSection { grid-column: 1; grid-row: 2; }
+#mainLayout.layout-sidebar #scaleSection { grid-column: 1; grid-row: 2; }
 #mainLayout.layout-sidebar #downloadSection { grid-column: 1; grid-row: 3; }
 #mainLayout.layout-sidebar #viewerSection { grid-column: 2; grid-row: 1 / span 3; }
+#mainLayout.layout-sidebar #resultsPane { grid-column: 3; grid-row: 1 / span 3; }
 
 @media (max-width: 900px) {
-  #mainLayout.layout-sidebar { display: block; }
+  #mainLayout,
+  #mainLayout.layout-sidebar {
+    display: block;
+  }
+  #mainLayout #intakeSection,
+  #mainLayout #scaleSection,
+  #mainLayout #viewerSection,
+  #mainLayout #downloadSection,
+  #mainLayout #resultsPane,
   #mainLayout.layout-sidebar #intakeSection,
-  #mainLayout.layout-sidebar #resultsSection,
+  #mainLayout.layout-sidebar #scaleSection,
+  #mainLayout.layout-sidebar #viewerSection,
   #mainLayout.layout-sidebar #downloadSection,
-  #mainLayout.layout-sidebar #viewerSection {
+  #mainLayout.layout-sidebar #resultsPane {
     grid-column: auto;
     grid-row: auto;
   }

@@ -140,8 +140,9 @@ const currentFileInfo = document.getElementById("currentFileInfo");
 const currentFileNameEl = document.getElementById("currentFileNameEl");
 const changeFileBtn = document.getElementById("changeFileBtn");
 
+const scaleSectionEl = document.getElementById("scaleSection");
 const viewerSectionEl = document.getElementById("viewerSection");
-const resultsSectionEl = document.getElementById("resultsSection");
+const resultsPaneEl = document.getElementById("resultsPane");
 
 const canvasScroller = document.getElementById("canvasScroller");
 const pdfCanvas = document.getElementById("pdfCanvas");
@@ -157,10 +158,11 @@ const zoomInBtn = document.getElementById("zoomInBtn");
 const zoomIndicatorEl = document.getElementById("zoomIndicator");
 
 const setScaleBtn = document.getElementById("setScaleBtn");
+const cancelScaleBtn = document.getElementById("cancelScaleBtn");
 const traceRoomBtn = document.getElementById("traceRoomBtn");
 const undoPointBtn = document.getElementById("undoPointBtn");
 const finishRoomBtn = document.getElementById("finishRoomBtn");
-const cancelActionBtn = document.getElementById("cancelActionBtn");
+const cancelTraceBtn = document.getElementById("cancelTraceBtn");
 
 const scaleRatioForm = document.getElementById("scaleRatioForm");
 const scaleRatioInput = document.getElementById("scaleRatioInput");
@@ -277,7 +279,72 @@ function initFromEmailPanel() {
 }
 initFromEmailPanel();
 
-// ---- Layout toggle: stacked (default) vs. 1+3 on the left -----------------
+// ---- Full-file persistence (survives a page refresh) -----------------------
+// The autosave below (see saveAutosave) only ever held the scale/room
+// *geometry* — small enough for localStorage, keyed by file name+size. The
+// PDF's actual bytes were never persisted, so refreshing the page always
+// meant re-picking the file from disk, even though the traced rooms would
+// have come right back once you did. IndexedDB has a much higher storage
+// quota than localStorage (built for exactly this kind of blob), so the
+// currently-open file's bytes are stashed there too, and checked for on
+// startup — turning a refresh into a full, automatic restore.
+const FILE_DB_NAME = "floorAreaTakeoffFiles";
+const FILE_STORE_NAME = "currentFile";
+const FILE_DB_KEY = "current";
+
+function openFileDb() {
+  return new Promise((resolve, reject) => {
+    let req;
+    try {
+      req = indexedDB.open(FILE_DB_NAME, 1);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(FILE_STORE_NAME);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// Best-effort: if IndexedDB isn't available (private browsing, quota,
+// disabled storage), a refresh just falls back to today's behavior —
+// nothing here needs to succeed for the app to keep working.
+function persistCurrentFile(fileName, bytes) {
+  openFileDb()
+    .then((db) => {
+      db.transaction(FILE_STORE_NAME, "readwrite").objectStore(FILE_STORE_NAME).put({ fileName, bytes }, FILE_DB_KEY);
+    })
+    .catch(() => {});
+}
+
+function loadPersistedFile() {
+  return openFileDb().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const req = db.transaction(FILE_STORE_NAME, "readonly").objectStore(FILE_STORE_NAME).get(FILE_DB_KEY);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      })
+  );
+}
+
+loadPersistedFile()
+  .then((entry) => {
+    // If the user has already opened something (dragged/picked a file
+    // themselves) by the time this IndexedDB read resolves, don't clobber
+    // it — this check is what keeps a slow auto-restore from racing a
+    // manual file pick that happens right after a page load.
+    if (currentPdf) return;
+    if (!entry || !entry.fileName || !entry.bytes) return;
+    const bytes = entry.bytes instanceof Uint8Array ? entry.bytes : new Uint8Array(entry.bytes);
+    openPdfFromBytes(entry.fileName, bytes);
+  })
+  .catch(() => {});
+
+// ---- Layout toggle: stacked (default) vs. 1, 2 & 4 on the left -------------
 const LAYOUT_STORAGE_KEY = "floorAreaTakeoff:layout";
 
 function applyLayout(layout) {
@@ -395,15 +462,26 @@ function showZipPicker(entries) {
 }
 
 // ---- 2. Opening a PDF -------------------------------------------------------
+// Normally only ever triggered by one exclusive user action at a time (drag,
+// file picker, zip-entry pick) — but the IndexedDB auto-restore below can
+// also call this on startup, independently of the user, which makes genuine
+// overlap possible for the first time (e.g. auto-restore is still loading
+// an old file when the user drags in a new one right after the page loads).
+// openRequestToken makes only the *latest* call's result ever get applied,
+// regardless of which one's async chain happens to finish last.
+let openRequestToken = 0;
 function openPdfFromBytes(fileName, bytes) {
+  const myToken = ++openRequestToken;
   setStatus(`Loading "${fileName}"…`);
   loadPdfJs().then(
     () => {
+      if (myToken !== openRequestToken) return;
       // A copy for pdf.js — it can transfer/detach the buffer it's given,
       // and `bytes` needs to stay pristine for the download button to embed
       // later (see the doc comment on originalBytes above).
       pdfjsLib.getDocument({ data: bytes.slice() }).promise.then(
         (pdf) => {
+          if (myToken !== openRequestToken) return;
           originalBytes = bytes;
           currentFileName = fileName;
           currentPdf = pdf;
@@ -414,9 +492,10 @@ function openPdfFromBytes(fileName, bytes) {
           renderScale = 1.5;
           resetToolState();
           setScaleBtn.disabled = false;
-          fileNameHeadingEl.textContent = `2. Set scale, then trace rooms — "${fileName}"`;
+          fileNameHeadingEl.textContent = `3. Trace rooms — "${fileName}"`;
+          scaleSectionEl.hidden = false;
           viewerSectionEl.hidden = false;
-          resultsSectionEl.hidden = false;
+          resultsPaneEl.hidden = false;
           downloadSectionEl.hidden = false;
           dropZone.hidden = true;
           currentFileInfo.hidden = false;
@@ -426,11 +505,18 @@ function openPdfFromBytes(fileName, bytes) {
           updateResultsTable();
           setStatus(`Loaded "${fileName}". Set the scale, then trace each room.`);
           restorePreviousProgress(pdf, fileName, bytes.length);
+          persistCurrentFile(fileName, bytes);
         },
-        (err) => setStatus(`Couldn't open "${fileName}" — ` + describeError(err), true)
+        (err) => {
+          if (myToken !== openRequestToken) return;
+          setStatus(`Couldn't open "${fileName}" — ` + describeError(err), true);
+        }
       );
     },
-    (err) => setStatus("Couldn't load the PDF viewer library — " + describeError(err), true)
+    (err) => {
+      if (myToken !== openRequestToken) return;
+      setStatus("Couldn't load the PDF viewer library — " + describeError(err), true);
+    }
   );
 }
 
@@ -506,21 +592,40 @@ function loadAutosave(fileName, byteLength) {
 }
 
 let autosaveTimer = null;
+function writeAutosaveNow() {
+  if (!currentFileName || !originalBytes) return;
+  try {
+    localStorage.setItem(
+      autosaveKey(currentFileName, originalBytes.length),
+      JSON.stringify({ pageGeometry, nextRoomId })
+    );
+  } catch (e) {
+    // Storage full or unavailable (private browsing etc.) — this session
+    // still works fine, it just won't be there next time.
+  }
+}
+
 function saveAutosave() {
   if (!currentFileName || !originalBytes) return;
   clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(() => {
-    try {
-      localStorage.setItem(
-        autosaveKey(currentFileName, originalBytes.length),
-        JSON.stringify({ pageGeometry, nextRoomId })
-      );
-    } catch (e) {
-      // Storage full or unavailable (private browsing etc.) — this session
-      // still works fine, it just won't be there next time.
-    }
-  }, 500);
+  autosaveTimer = setTimeout(writeAutosaveNow, 500);
 }
+
+// The 500ms debounce above is fine for normal typing/dragging, but a reload
+// or tab close right after the last edit would cancel that pending timer
+// (page navigation kills JS timers) and silently lose it — exactly the kind
+// of loss the refresh-persistence feature above is trying to prevent. Flush
+// immediately, synchronously, the moment the page might be going away.
+function flushAutosave() {
+  if (!autosaveTimer) return;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = null;
+  writeAutosaveNow();
+}
+window.addEventListener("pagehide", flushAutosave);
+window.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushAutosave();
+});
 
 function clearAutosave() {
   if (!currentFileName || !originalBytes) return;
@@ -863,7 +968,8 @@ function resetToolState() {
   roomNameForm.hidden = true;
   undoPointBtn.hidden = true;
   finishRoomBtn.hidden = true;
-  cancelActionBtn.hidden = true;
+  cancelScaleBtn.hidden = true;
+  cancelTraceBtn.hidden = true;
 }
 
 overlayCanvas.addEventListener("click", (evt) => {
@@ -1045,7 +1151,7 @@ canvasScroller.addEventListener(
 setScaleBtn.addEventListener("click", () => {
   resetToolState();
   mode = "calibrate";
-  cancelActionBtn.hidden = false;
+  cancelScaleBtn.hidden = false;
   scaleRatioForm.hidden = false;
   setStatus(
     "Click one end of a known measurement on the plan (a scale bar or a labelled dimension), or enter the drawing's printed scale below."
@@ -1059,7 +1165,7 @@ traceRoomBtn.addEventListener("click", () => {
   undoPointBtn.hidden = false;
   finishRoomBtn.hidden = false;
   finishRoomBtn.disabled = true;
-  cancelActionBtn.hidden = false;
+  cancelTraceBtn.hidden = false;
   setStatus("Click each corner of the room in order, then click “Finish room”.");
 });
 
@@ -1069,11 +1175,13 @@ undoPointBtn.addEventListener("click", () => {
   redrawOverlay();
 });
 
-cancelActionBtn.addEventListener("click", () => {
+function cancelCurrentAction() {
   resetToolState();
   setStatus("Cancelled.");
   redrawOverlay();
-});
+}
+cancelScaleBtn.addEventListener("click", cancelCurrentAction);
+cancelTraceBtn.addEventListener("click", cancelCurrentAction);
 
 // A printed scale like "1:100" means 1 PDF point on the page (1/72 inch)
 // represents 100 times that in real life — this only holds if the PDF's
@@ -1276,7 +1384,13 @@ function goToRoom(id, pageNum) {
 function updateResultsTable() {
   resultsBody.innerHTML = "";
   let totalM2 = 0;
-  rooms.forEach((r) => {
+  // Sort is stable, so rooms on the same page keep their original
+  // (creation) order relative to each other — only the page grouping
+  // changes. `rooms` itself stays in insertion order for everything else
+  // that reads it (naming defaults, copy/export), only this render is
+  // page-ordered.
+  const displayRooms = rooms.slice().sort((a, b) => a.page - b.page);
+  displayRooms.forEach((r) => {
     totalM2 += r.areaM2;
     const tr = document.createElement("tr");
 

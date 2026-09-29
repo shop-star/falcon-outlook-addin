@@ -13,7 +13,7 @@
     <div class="layout-toggle" role="group" aria-label="Page layout">
       <span class="muted">Layout:</span>
       <button id="layoutStackedBtn" type="button" class="layout-btn">Stacked</button>
-      <button id="layoutSidebarBtn" type="button" class="layout-btn">1 &amp; 3 on the left</button>
+      <button id="layoutSidebarBtn" type="button" class="layout-btn">1, 2 &amp; 4 on the left</button>
     </div>
   </header>
 
@@ -45,35 +45,11 @@
     </div>
   </section>
 
-  <section id="viewerSection" class="panel" hidden>
-    <h2 id="fileNameHeading">2. Set scale, then trace rooms</h2>
-
-    <div class="toolbar">
-      <div class="toolbar-group">
-        <button id="prevPageBtn" title="Previous page">◀</button>
-        <span id="pageIndicator">Page 1 / 1</span>
-        <button id="nextPageBtn" title="Next page">▶</button>
-      </div>
-      <div class="toolbar-group">
-        <button id="zoomOutBtn" title="Zoom out">−</button>
-        <span id="zoomIndicator">150%</span>
-        <button id="zoomInBtn" title="Zoom in">+</button>
-      </div>
-    </div>
-
+  <section id="scaleSection" class="panel" hidden>
+    <h2>2. Set scale</h2>
     <div class="toolbar">
       <button id="setScaleBtn" class="primary" disabled>Set scale</button>
-      <button id="traceRoomBtn" disabled>Trace room</button>
-      <button id="undoPointBtn" hidden>Undo point</button>
-      <button id="finishRoomBtn" hidden disabled>Finish room</button>
-      <button id="cancelActionBtn" hidden>Cancel</button>
-    </div>
-
-    <div id="canvasScroller" class="canvas-scroller">
-      <div id="canvasStack" class="canvas-stack">
-        <canvas id="pdfCanvas"></canvas>
-        <canvas id="overlayCanvas"></canvas>
-      </div>
+      <button id="cancelScaleBtn" hidden>Cancel</button>
     </div>
 
     <!-- Alternative to clicking two points: type the page's printed scale
@@ -122,6 +98,39 @@
       </div>
     </div>
 
+    <div id="scaleInfo" class="scale-info" hidden></div>
+  </section>
+
+  <section id="viewerSection" class="panel" hidden>
+    <h2 id="fileNameHeading">3. Trace rooms</h2>
+
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <button id="prevPageBtn" title="Previous page">◀</button>
+        <span id="pageIndicator">Page 1 / 1</span>
+        <button id="nextPageBtn" title="Next page">▶</button>
+      </div>
+      <div class="toolbar-group">
+        <button id="zoomOutBtn" title="Zoom out">−</button>
+        <span id="zoomIndicator">150%</span>
+        <button id="zoomInBtn" title="Zoom in">+</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button id="traceRoomBtn" disabled>Trace room</button>
+      <button id="undoPointBtn" hidden>Undo point</button>
+      <button id="finishRoomBtn" hidden disabled>Finish room</button>
+      <button id="cancelTraceBtn" hidden>Cancel</button>
+    </div>
+
+    <div id="canvasScroller" class="canvas-scroller">
+      <div id="canvasStack" class="canvas-stack">
+        <canvas id="pdfCanvas"></canvas>
+        <canvas id="overlayCanvas"></canvas>
+      </div>
+    </div>
+
     <!-- Inline room-naming form -->
     <div id="roomNameForm" class="inline-form" hidden>
       <label>
@@ -136,12 +145,27 @@
         <button id="roomNameCancelBtn">Cancel</button>
       </div>
     </div>
-
-    <div id="scaleInfo" class="scale-info" hidden></div>
   </section>
 
-  <section id="resultsSection" class="panel" hidden>
-    <h2>3. Floor areas</h2>
+  <section id="downloadSection" class="panel" hidden>
+    <h2>4. Download</h2>
+    <div class="download-options-group">
+      <span class="muted">Pages to include:</span>
+      <label><input type="radio" name="downloadPages" value="current" /> Just the current page</label>
+      <label><input type="radio" name="downloadPages" value="all" checked /> Whole document</label>
+      <label><input type="radio" name="downloadPages" value="traced" /> Only pages with tracings</label>
+    </div>
+    <div class="download-options-group">
+      <label>
+        <input type="checkbox" id="downloadIncludeSummary" checked />
+        Include a summary page with the floor areas table
+      </label>
+    </div>
+    <button id="downloadConfirmBtn" class="primary">Download</button>
+  </section>
+
+  <section id="resultsPane" class="panel" hidden>
+    <h2>Floor areas</h2>
     <div class="page-jump">
       <label for="resultsPageSelect">Go to page:</label>
       <select id="resultsPageSelect"></select>
@@ -174,23 +198,6 @@
       <button id="clearAllBtn">Clear all</button>
     </div>
     <textarea id="copyFallback" class="copy-fallback" hidden></textarea>
-  </section>
-
-  <section id="downloadSection" class="panel" hidden>
-    <h2>4. Download</h2>
-    <div class="download-options-group">
-      <span class="muted">Pages to include:</span>
-      <label><input type="radio" name="downloadPages" value="current" /> Just the current page</label>
-      <label><input type="radio" name="downloadPages" value="all" checked /> Whole document</label>
-      <label><input type="radio" name="downloadPages" value="traced" /> Only pages with tracings</label>
-    </div>
-    <div class="download-options-group">
-      <label>
-        <input type="checkbox" id="downloadIncludeSummary" checked />
-        Include a summary page with the floor areas table
-      </label>
-    </div>
-    <button id="downloadConfirmBtn" class="primary">Download</button>
   </section>
   </div>
 

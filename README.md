@@ -95,55 +95,60 @@ ribbon.
    of the listed links), then drag it into the app (or a zip containing
    it). Once a plan is open, section 1 shrinks down to just its file name
    and an **Open a different file** button.
-3. Click **Set scale**, then either click the two ends of a labelled
+3. In the **Set scale** section, either click the two ends of a labelled
    dimension or the plan's scale bar and enter its real length and unit
    when prompted, or — if you already know it — just type the page's
    printed scale (e.g. `1:100`) into the box below and click **Use this
-   scale** (or click one of the **1:50 / 1:100 / 1:200** preset buttons for
-   an instant one-click set). The typed-scale shortcut assumes the PDF's
+   scale**, or click one of the **1:50 / 1:100 / 1:200** preset buttons for
+   an instant one-click set. The typed-scale shortcut assumes the PDF's
    page size matches the real sheet size (i.e. it wasn't resized on
    export); if areas come out wrong, use the click-and-measure method
    instead.
-4. Click **Trace room**, click around a room's outline corner by corner,
-   then **Finish room**, give it a name, and pick its colour (a different
-   one is suggested each time, but pick your own if you like). Repeat for
-   each room (and each page, if the plan has multiple floors — you'll need
-   to set the scale once per page). To fix up a room afterward, click its
-   outline (when you're not actively tracing or setting scale) to select
-   it, then drag its corner handles to reshape it — the area updates as you
-   drag — or drag the circle on its label to reposition the label itself
-   (even outside the room, which draws a thin line back to it so it's still
-   clearly that room's label). Both the room's outline on the plan and its
-   label always show the area (e.g. "Bedroom — 16.59 m²"), and you can
-   change a room's name or colour anytime directly in the results table.
-5. Read the running list and total in the **Floor areas** section (it
-   updates live as you trace, and also shows each room's page and the
-   scale that was set on it) — click anywhere on a room's row to jump
-   straight to its page in the viewer above and select it for editing, or
-   use the **Go to page** dropdown at the top of this section to jump to
-   any page directly. Use **Copy results** to paste a tab-separated list
-   into Excel or your quote.
-6. The **Download** section underneath is always there, no button to open
-   it first — pick which pages to include (just the current page, the
-   whole document, or only the pages with a traced room on them) and
-   whether to append a summary page listing every room and its area (on by
-   default), then click **Download**.
+4. In **Trace rooms**, click **Trace room**, click around a room's outline
+   corner by corner, then **Finish room**, give it a name, and pick its
+   colour (a different one is suggested each time, but pick your own if
+   you like). Repeat for each room (and each page, if the plan has
+   multiple floors — you'll need to set the scale once per page). To fix
+   up a room afterward, click its outline (when you're not actively
+   tracing or setting scale) to select it, then drag its corner handles to
+   reshape it — the area updates as you drag — or drag the circle on its
+   label to reposition the label itself (even outside the room, which
+   draws a thin line back to it so it's still clearly that room's label).
+   Both the room's outline on the plan and its label always show the area
+   (e.g. "Bedroom — 16.59 m²"), and you can change a room's name or colour
+   anytime directly in the results table.
+5. Read the running list and total in the **Floor areas** pane on the
+   right (it updates live as you trace, ordered by page, and also shows
+   each room's page and the scale that was set on it) — click anywhere on
+   a room's row to jump straight to its page in the viewer and select it
+   for editing, or use the **Go to page** dropdown at the top of the pane
+   to jump to any page directly. Use **Copy results** to paste a
+   tab-separated list into Excel or your quote.
+6. The **Download** section is always there, no button to open it first —
+   pick which pages to include (just the current page, the whole
+   document, or only the pages with a traced room on them) and whether to
+   append a summary page listing every room and its area (on by default),
+   then click **Download**.
 
-If the plan and the floor-areas list feel cramped stacked on top of each
-other, the **Layout** control at the top of the page switches to putting
-**1. Open a plan** and **3. Floor areas** in a narrower column on the left,
-with the plan viewer filling the rest of the width — pick whichever suits
-your screen; it's remembered next time you open the app.
+If the numbered steps feel cramped stacked on top of each other, the
+**Layout** control at the top of the page switches to putting **1. Open a
+plan**, **2. Set scale**, and **4. Download** in a narrower column on the
+left, with the trace-rooms viewer filling the rest of the width — the
+**Floor areas** pane always stays on the right in either case. Pick
+whichever suits your screen; it's remembered next time you open the app.
 
 Your scale and traced rooms are saved automatically as you work, to your
-browser's local storage for that exact file (by name and size) — reopening
-the same file later in the same browser restores it. That's inherently
-per-browser/per-device, unlike the old Outlook-item-storage approach — but
-the **downloaded** PDF also carries its own progress embedded in it (see
-above), so passing that file along (by email, OneDrive, wherever) is what
-carries your progress across devices or to someone else. **Clear all**
-wipes the saved progress for the current file, so use it when you actually
-want to start over.
+browser's local storage for that exact file (by name and size), and the
+open file itself is also kept (in IndexedDB, which allows much more room
+than local storage) — so simply refreshing the page, or accidentally
+closing and reopening the tab, brings back exactly where you left off with
+no need to re-pick the file. That's inherently per-browser/per-device,
+unlike the old Outlook-item-storage approach — but the **downloaded** PDF
+also carries its own progress embedded in it (see above), so passing that
+file along (by email, OneDrive, wherever) is what carries your progress
+across devices or to someone else. **Clear all** wipes the saved room/scale
+progress for the current file (not the remembered-open-file part), so use
+it when you actually want to start over.
 
 ## Limitations to know about
 
