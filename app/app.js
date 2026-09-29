@@ -190,6 +190,7 @@ const scaleInfoEl = document.getElementById("scaleInfo");
 const resultsPageSelect = document.getElementById("resultsPageSelect");
 const resultsBody = document.getElementById("resultsBody");
 const totalMeasurementEl = document.getElementById("totalMeasurement");
+const totalUnitEl = document.getElementById("totalUnit");
 const copyResultsBtn = document.getElementById("copyResultsBtn");
 const downloadSectionEl = document.getElementById("downloadSection");
 const downloadIncludeSummary = document.getElementById("downloadIncludeSummary");
@@ -1589,14 +1590,17 @@ function updateResultsTable() {
     scaleTd.textContent = pageGeo && pageGeo.calibration ? pageGeo.calibration.label : "—";
 
     const measurementTd = document.createElement("td");
+    const unitTd = document.createElement("td");
     if (t.kind === "length") {
       hasLength = true;
       totalLengthM += t.lengthM;
-      measurementTd.textContent = `${t.lengthM.toFixed(2)} m`;
+      measurementTd.textContent = t.lengthM.toFixed(2);
+      unitTd.textContent = "m";
     } else {
       hasArea = true;
       totalAreaM2 += t.areaM2;
-      measurementTd.textContent = `${t.areaM2.toFixed(2)} m²`;
+      measurementTd.textContent = t.areaM2.toFixed(2);
+      unitTd.textContent = "m²";
     }
 
     const delTd = document.createElement("td");
@@ -1612,6 +1616,7 @@ function updateResultsTable() {
     tr.appendChild(pageTd);
     tr.appendChild(scaleTd);
     tr.appendChild(measurementTd);
+    tr.appendChild(unitTd);
     tr.appendChild(delTd);
     // Ignore clicks that landed on one of the row's own interactive
     // controls (colour swatch, name input, delete button) — those already
@@ -1627,12 +1632,24 @@ function updateResultsTable() {
   // Show each kind's total only if there's actually one of that kind —
   // otherwise (including the very first "nothing traced yet" state) fall
   // back to a single "0.00 m²" placeholder, matching this app's original
-  // always-area-only zero state.
-  let totalLines = [];
-  if (hasArea) totalLines.push(`${totalAreaM2.toFixed(2)} m²`);
-  if (hasLength) totalLines.push(`${totalLengthM.toFixed(2)} m`);
-  if (totalLines.length === 0) totalLines.push("0.00 m²");
-  totalMeasurementEl.innerHTML = totalLines.map((l) => `<strong>${l}</strong>`).join("<br>");
+  // always-area-only zero state. Value and unit are rendered as parallel
+  // <br>-separated lines across the two columns, so they stay lined up.
+  let totalValues = [];
+  let totalUnits = [];
+  if (hasArea) {
+    totalValues.push(totalAreaM2.toFixed(2));
+    totalUnits.push("m²");
+  }
+  if (hasLength) {
+    totalValues.push(totalLengthM.toFixed(2));
+    totalUnits.push("m");
+  }
+  if (totalValues.length === 0) {
+    totalValues.push("0.00");
+    totalUnits.push("m²");
+  }
+  totalMeasurementEl.innerHTML = totalValues.map((v) => `<strong>${v}</strong>`).join("<br>");
+  totalUnitEl.innerHTML = totalUnits.map((u) => `<strong>${u}</strong>`).join("<br>");
 }
 
 function removeTracing(id) {
