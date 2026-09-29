@@ -12,8 +12,8 @@
   <Version>2.0.0.0</Version>
   <ProviderName>City Timber</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Floor Area Takeoff" />
-  <Description DefaultValue="Opens the Floor Area Takeoff web app with this email's plan attachments and links ready to go." />
+  <DisplayName DefaultValue="Surface Takeoff" />
+  <Description DefaultValue="Opens the Surface Takeoff web app with this email's plan attachments and links ready to go." />
 
   <!-- Hosted via GitHub Pages at https://shop-star.github.io/falcon-outlook-addin -->
   <IconUrl DefaultValue="https://shop-star.github.io/falcon-outlook-addin/assets/icon-32.png" />
@@ -69,9 +69,9 @@
 
           <ExtensionPoint xsi:type="MessageReadCommandSurface">
             <OfficeTab id="TabDefault">
-              <Group id="FloorAreaGroup">
+              <Group id="SurfaceTakeoffGroup">
                 <Label resid="GroupLabel" />
-                <Control xsi:type="Button" id="FloorAreaButton">
+                <Control xsi:type="Button" id="SurfaceTakeoffButton">
                   <Label resid="ButtonLabel" />
                   <Supertip>
                     <Title resid="ButtonLabel" />
@@ -83,7 +83,7 @@
                     <bt:Image size="80" resid="Icon.80x80" />
                   </Icon>
                   <Action xsi:type="ExecuteFunction">
-                    <FunctionName>openFloorAreaApp</FunctionName>
+                    <FunctionName>openSurfaceTakeoffApp</FunctionName>
                   </Action>
                 </Control>
               </Group>
@@ -103,11 +103,11 @@
         <bt:Url id="Commands.Url" DefaultValue="https://shop-star.github.io/falcon-outlook-addin/commands.html" />
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GroupLabel" DefaultValue="Floor Areas" />
-        <bt:String id="ButtonLabel" DefaultValue="Floor Areas" />
+        <bt:String id="GroupLabel" DefaultValue="Surface Takeoff" />
+        <bt:String id="ButtonLabel" DefaultValue="Surface Takeoff" />
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="ButtonTooltip" DefaultValue="Open the Floor Area Takeoff app with this email's plan attachments and links ready to go." />
+        <bt:String id="ButtonTooltip" DefaultValue="Open the Surface Takeoff app with this email's plan attachments and links ready to go." />
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

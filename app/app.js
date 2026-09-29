@@ -1,4 +1,4 @@
-/* Floor Area Takeoff — standalone browser app
+/* Surface Takeoff — standalone browser app
  * Replaces the old Outlook task pane + pop-up dialog pair with a single
  * ordinary page: no Office.js, no embedded WebView, no cross-window
  * messaging. A real browser tab handles file downloads and drag-and-drop
@@ -75,12 +75,12 @@ function loadJSZip() {
 
 const UNIT_TO_M = { mm: 0.001, cm: 0.01, m: 1, ft: 0.3048, in: 0.0254 };
 
-// A room's colour is picked from this palette by default (cycling by how
-// many rooms already exist), and can always be overridden — either in the
-// naming form when first tracing it, or from the swatch in the results
+// A tracing's colour is picked from this palette by default (cycling by how
+// many tracings already exist), and can always be overridden — either in
+// the naming form when first drawing it, or from the swatch in the results
 // table afterward.
-const DEFAULT_ROOM_COLOR = "#15655c";
-const ROOM_COLOR_PALETTE = [
+const DEFAULT_TRACING_COLOR = "#15655c";
+const TRACING_COLOR_PALETTE = [
   "#15655c",
   "#c2185b",
   "#e07b00",
@@ -91,7 +91,7 @@ const ROOM_COLOR_PALETTE = [
   "#ad1457",
 ];
 function paletteColor(index) {
-  return ROOM_COLOR_PALETTE[index % ROOM_COLOR_PALETTE.length];
+  return TRACING_COLOR_PALETTE[index % TRACING_COLOR_PALETTE.length];
 }
 
 // ---- State -----------------------------------------------------------
@@ -104,23 +104,27 @@ let currentFileName = null;
 // button always has a pristine, untouched original to build from.
 let originalBytes = null;
 
-/** pageGeometry[pageNum] = { calibration: {p1,p2,metersPerUnit,label} | null, rooms: [{id,name,points}] } */
+/** pageGeometry[pageNum] = { calibration: {p1,p2,metersPerUnit,label} | null, tracings: [{id,name,points,kind}] } */
 let pageGeometry = {};
 
-/** flat list mirrored to the results table */
-let rooms = []; // { id, page, name, areaM2 }
-let nextRoomId = 1;
+/** flat list mirrored to the results table. kind: "area" (has areaM2) or "length" (has lengthM) */
+let tracings = []; // { id, page, name, color, kind, areaM2? , lengthM? }
+let nextTracingId = 1;
 
 let mode = "idle"; // idle | calibrate | trace
 let calibTemp = { p1: null, p2: null };
 let traceTemp = { page: null, points: [] };
+// Set right before opening the naming form (by the "Finish area" or
+// "Measure length" button), so the confirm handler knows which kind of
+// tracing it's actually completing.
+let pendingTraceKind = null; // "area" | "length"
 
-// Clicking an already-traced room's outline while idle selects it for
-// editing — its corner points are drawn as draggable handles until you
-// click elsewhere (or start calibrating/tracing) to deselect.
-let editingRoom = null; // room id, or null
-let vertexDragState = null; // { roomId, pointIndex, dragged }
-let labelDragState = null; // { roomId, dragged }
+// Clicking an already-drawn tracing's outline while idle selects it for
+// editing — its points are drawn as draggable handles until you click
+// elsewhere (or start calibrating/tracing) to deselect.
+let editingTracing = null; // tracing id, or null
+let vertexDragState = null; // { tracingId, pointIndex, dragged }
+let labelDragState = null; // { tracingId, dragged }
 
 // ---- DOM refs ----------------------------------------------------------
 const statusBarEl = document.getElementById("statusBar");
@@ -159,9 +163,10 @@ const zoomIndicatorEl = document.getElementById("zoomIndicator");
 
 const setScaleBtn = document.getElementById("setScaleBtn");
 const cancelScaleBtn = document.getElementById("cancelScaleBtn");
-const traceRoomBtn = document.getElementById("traceRoomBtn");
+const traceBtn = document.getElementById("traceBtn");
 const undoPointBtn = document.getElementById("undoPointBtn");
-const finishRoomBtn = document.getElementById("finishRoomBtn");
+const finishAreaBtn = document.getElementById("finishAreaBtn");
+const measureLengthBtn = document.getElementById("measureLengthBtn");
 const cancelTraceBtn = document.getElementById("cancelTraceBtn");
 
 const scaleRatioForm = document.getElementById("scaleRatioForm");
@@ -174,17 +179,17 @@ const calibUnitSelect = document.getElementById("calibUnitSelect");
 const calibConfirmBtn = document.getElementById("calibConfirmBtn");
 const calibCancelBtn = document.getElementById("calibCancelBtn");
 
-const roomNameForm = document.getElementById("roomNameForm");
-const roomNameInput = document.getElementById("roomNameInput");
-const roomColorInput = document.getElementById("roomColorInput");
-const roomNameConfirmBtn = document.getElementById("roomNameConfirmBtn");
-const roomNameCancelBtn = document.getElementById("roomNameCancelBtn");
+const tracingNameForm = document.getElementById("tracingNameForm");
+const tracingNameInput = document.getElementById("tracingNameInput");
+const tracingColorInput = document.getElementById("tracingColorInput");
+const tracingNameConfirmBtn = document.getElementById("tracingNameConfirmBtn");
+const tracingNameCancelBtn = document.getElementById("tracingNameCancelBtn");
 
 const scaleInfoEl = document.getElementById("scaleInfo");
 
 const resultsPageSelect = document.getElementById("resultsPageSelect");
 const resultsBody = document.getElementById("resultsBody");
-const totalM2El = document.getElementById("totalM2");
+const totalMeasurementEl = document.getElementById("totalMeasurement");
 const copyResultsBtn = document.getElementById("copyResultsBtn");
 const downloadSectionEl = document.getElementById("downloadSection");
 const downloadIncludeSummary = document.getElementById("downloadIncludeSummary");
@@ -280,14 +285,19 @@ function initFromEmailPanel() {
 initFromEmailPanel();
 
 // ---- Full-file persistence (survives a page refresh) -----------------------
-// The autosave below (see saveAutosave) only ever held the scale/room
+// The autosave below (see saveAutosave) only ever held the scale/tracing
 // *geometry* — small enough for localStorage, keyed by file name+size. The
 // PDF's actual bytes were never persisted, so refreshing the page always
-// meant re-picking the file from disk, even though the traced rooms would
-// have come right back once you did. IndexedDB has a much higher storage
-// quota than localStorage (built for exactly this kind of blob), so the
+// meant re-picking the file from disk, even though the tracings would have
+// come right back once you did. IndexedDB has a much higher storage quota
+// than localStorage (built for exactly this kind of blob), so the
 // currently-open file's bytes are stashed there too, and checked for on
 // startup — turning a refresh into a full, automatic restore.
+//
+// These storage keys/names keep their original "floorAreaTakeoff" spelling
+// even after the app's rename to Surface Takeoff — they're invisible
+// implementation details, and changing them would silently orphan anyone's
+// already-saved file/progress instead of restoring it.
 const FILE_DB_NAME = "floorAreaTakeoffFiles";
 const FILE_STORE_NAME = "currentFile";
 const FILE_DB_KEY = "current";
@@ -463,7 +473,7 @@ function showZipPicker(entries) {
 
 // ---- 2. Opening a PDF -------------------------------------------------------
 // Normally only ever triggered by one exclusive user action at a time (drag,
-// file picker, zip-entry pick) — but the IndexedDB auto-restore below can
+// file picker, zip-entry pick) — but the IndexedDB auto-restore above can
 // also call this on startup, independently of the user, which makes genuine
 // overlap possible for the first time (e.g. auto-restore is still loading
 // an old file when the user drags in a new one right after the page loads).
@@ -487,12 +497,12 @@ function openPdfFromBytes(fileName, bytes) {
           currentPdf = pdf;
           currentPageNum = 1;
           pageGeometry = {};
-          rooms = [];
-          nextRoomId = 1;
+          tracings = [];
+          nextTracingId = 1;
           renderScale = 1.5;
           resetToolState();
           setScaleBtn.disabled = false;
-          fileNameHeadingEl.textContent = `3. Trace rooms — "${fileName}"`;
+          fileNameHeadingEl.textContent = `3. Add tracings — "${fileName}"`;
           scaleSectionEl.hidden = false;
           viewerSectionEl.hidden = false;
           resultsPaneEl.hidden = false;
@@ -503,7 +513,7 @@ function openPdfFromBytes(fileName, bytes) {
           populatePageSelect(pdf.numPages);
           renderPage();
           updateResultsTable();
-          setStatus(`Loaded "${fileName}". Set the scale, then trace each room.`);
+          setStatus(`Loaded "${fileName}". Set the scale, then trace each outline.`);
           restorePreviousProgress(pdf, fileName, bytes.length);
           persistCurrentFile(fileName, bytes);
         },
@@ -523,15 +533,15 @@ function openPdfFromBytes(fileName, bytes) {
 // Two sources of previously-saved progress, checked in order: this exact
 // file already opened once in this browser (autosaved to localStorage,
 // keyed by name+size — see saveAutosave), or the file itself is a
-// previously-downloaded round-trip copy with its own embedded scale/room
-// data (see buildAnnotatedPdfBytes). Either way, restoring means the flat
-// room list gets recomputed from the polygons rather than trusted as saved,
-// so it can never drift from what's actually drawn.
+// previously-downloaded round-trip copy with its own embedded scale/tracing
+// data (see buildDownloadPdfBytes). Either way, restoring means the flat
+// tracings list gets recomputed from the geometry rather than trusted as
+// saved, so it can never drift from what's actually drawn.
 function restorePreviousProgress(pdf, fileName, byteLength) {
   const autosaved = loadAutosave(fileName, byteLength);
   if (autosaved && autosaved.pageGeometry && Object.keys(autosaved.pageGeometry).length > 0) {
-    applyRestoredGeometry(autosaved.pageGeometry, autosaved.nextRoomId);
-    setStatus("Restored your previous scale and room traces for this plan.");
+    applyRestoredGeometry(autosaved.pageGeometry, autosaved.nextTracingId || autosaved.nextRoomId);
+    setStatus("Restored your previous scale and tracings for this plan.");
     return;
   }
   pdf.getAttachments().then(
@@ -541,8 +551,8 @@ function restorePreviousProgress(pdf, fileName, byteLength) {
       try {
         const parsed = JSON.parse(new TextDecoder().decode(embedded.content));
         if (parsed && parsed.pageGeometry && Object.keys(parsed.pageGeometry).length > 0) {
-          applyRestoredGeometry(parsed.pageGeometry, parsed.nextRoomId);
-          setStatus("Restored the scale and room traces embedded in this PDF.");
+          applyRestoredGeometry(parsed.pageGeometry, parsed.nextTracingId || parsed.nextRoomId);
+          setStatus("Restored the scale and tracings embedded in this PDF.");
         }
       } catch (e) {
         // Not our own embedded data, or corrupted — ignore, the PDF still
@@ -555,19 +565,35 @@ function restorePreviousProgress(pdf, fileName, byteLength) {
 
 function applyRestoredGeometry(geometry, nextId) {
   pageGeometry = geometry || {};
-  nextRoomId = nextId || 1;
-  rooms = [];
-  editingRoom = null;
+  nextTracingId = nextId || 1;
+  tracings = [];
+  editingTracing = null;
   vertexDragState = null;
   Object.keys(pageGeometry).forEach((pageNumKey) => {
     const pageNum = Number(pageNumKey);
     const geo = pageGeometry[pageNum];
-    (geo.rooms || []).forEach((r) => {
-      const areaPageUnits = polygonAreaPageUnits(r.points);
-      const areaM2 = geo.calibration
-        ? areaPageUnits * geo.calibration.metersPerUnit * geo.calibration.metersPerUnit
-        : 0;
-      rooms.push({ id: r.id, page: pageNum, name: r.name, areaM2, color: r.color || DEFAULT_ROOM_COLOR });
+    // Older saved/downloaded files used `rooms` instead of `tracings`, and
+    // never had a `kind` (everything was an area) — normalize both here so
+    // restoring an old file behaves exactly as it always did.
+    if (!geo.tracings && geo.rooms) {
+      geo.tracings = geo.rooms;
+      delete geo.rooms;
+    }
+    geo.tracings = geo.tracings || [];
+    geo.tracings.forEach((t) => {
+      if (!t.kind) t.kind = "area";
+      const color = t.color || DEFAULT_TRACING_COLOR;
+      if (t.kind === "length") {
+        const lengthPageUnits = polylineLengthPageUnits(t.points);
+        const lengthM = geo.calibration ? lengthPageUnits * geo.calibration.metersPerUnit : 0;
+        tracings.push({ id: t.id, page: pageNum, name: t.name, color, kind: "length", lengthM });
+      } else {
+        const areaPageUnits = polygonAreaPageUnits(t.points);
+        const areaM2 = geo.calibration
+          ? areaPageUnits * geo.calibration.metersPerUnit * geo.calibration.metersPerUnit
+          : 0;
+        tracings.push({ id: t.id, page: pageNum, name: t.name, color, kind: "area", areaM2 });
+      }
     });
   });
   redrawOverlay();
@@ -597,7 +623,7 @@ function writeAutosaveNow() {
   try {
     localStorage.setItem(
       autosaveKey(currentFileName, originalBytes.length),
-      JSON.stringify({ pageGeometry, nextRoomId })
+      JSON.stringify({ pageGeometry, nextTracingId })
     );
   } catch (e) {
     // Storage full or unavailable (private browsing etc.) — this session
@@ -685,7 +711,7 @@ function renderPage(onResized) {
 
 // Populated once per opened file (numPages is fixed for that file) so
 // section 3's "Go to page" selector always lists every real page, not just
-// the ones with a traced room on them.
+// the ones with a tracing on them.
 function populatePageSelect(numPages) {
   resultsPageSelect.innerHTML = "";
   for (let i = 1; i <= numPages; i++) {
@@ -706,7 +732,7 @@ resultsPageSelect.addEventListener("change", () => {
 
 function currentGeometry() {
   if (!pageGeometry[currentPageNum]) {
-    pageGeometry[currentPageNum] = { calibration: null, rooms: [] };
+    pageGeometry[currentPageNum] = { calibration: null, tracings: [] };
   }
   return pageGeometry[currentPageNum];
 }
@@ -732,13 +758,18 @@ function redrawOverlay() {
     }
   }
 
-  geo.rooms.forEach((room) => {
-    const isEditing = room.id === editingRoom;
-    const color = room.color || DEFAULT_ROOM_COLOR;
-    drawPolygon(room.points, color, roomLabelText(room), isEditing ? 3 : 2, room.labelPos);
+  geo.tracings.forEach((tracing) => {
+    const isEditing = tracing.id === editingTracing;
+    const color = tracing.color || DEFAULT_TRACING_COLOR;
+    const label = tracingLabelText(tracing);
+    if (tracing.kind === "length") {
+      drawMeasuredLine(tracing.points, color, label, isEditing ? 3 : 2, tracing.labelPos);
+    } else {
+      drawPolygon(tracing.points, color, label, isEditing ? 3 : 2, tracing.labelPos);
+    }
     if (isEditing) {
-      room.points.forEach((pt) => drawHandle(pt, color));
-      drawLabelHandle(room.labelPos || polygonCentroid(room.points), color);
+      tracing.points.forEach((pt) => drawHandle(pt, color));
+      drawLabelHandle(tracing.labelPos || polygonCentroid(tracing.points), color);
     }
   });
 
@@ -746,7 +777,7 @@ function redrawOverlay() {
     drawPolyline(traceTemp.points, "#c2185b");
   }
 
-  traceRoomBtn.disabled = !geo.calibration;
+  traceBtn.disabled = !geo.calibration;
   setScaleBtn.textContent = geo.calibration ? "Re-set scale" : "Set scale";
   if (geo.calibration) {
     scaleInfoEl.hidden = false;
@@ -770,7 +801,8 @@ function drawPoint(p, color) {
 }
 
 // A bigger, hollow square rather than drawPoint's filled dot — reads as a
-// "drag this" handle on a selected room's corners rather than just a marker.
+// "drag this" handle on a selected tracing's points rather than just a
+// marker.
 function drawHandle(p, color) {
   const [cx, cy] = toCanvas(p);
   const size = 9;
@@ -781,8 +813,8 @@ function drawHandle(p, color) {
   overlayCtx.strokeRect(cx - size / 2, cy - size / 2, size, size);
 }
 
-// A hollow circle rather than drawHandle's square, so a selected room's
-// label handle reads as a distinct kind of drag target from its corners.
+// A hollow circle rather than drawHandle's square, so a selected tracing's
+// label handle reads as a distinct kind of drag target from its points.
 function drawLabelHandle(p, color) {
   const [cx, cy] = toCanvas(p);
   const r = 6;
@@ -839,9 +871,9 @@ function hexToRgba(hex, alpha) {
 }
 
 // labelPos, if given, overrides the default centroid placement — set by
-// dragging a room's label handle (see labelDragState). When that moved
-// position falls outside the room's own outline, a thin dashed line
-// connects it back to the room so it's still obviously that room's label.
+// dragging a tracing's label handle (see labelDragState). When that moved
+// position falls outside the tracing's own outline, a thin dashed line
+// connects it back so it's still obviously that tracing's label.
 function drawPolygon(points, color, label, lineWidth, labelPos) {
   if (points.length < 3) return;
   overlayCtx.beginPath();
@@ -862,6 +894,48 @@ function drawPolygon(points, color, label, lineWidth, labelPos) {
   const anchor = labelPos || centroid;
 
   if (labelPos && !pointInPolygon(labelPos, points)) {
+    const [ax, ay] = toCanvas(anchor);
+    const [ccx, ccy] = toCanvas(centroid);
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(ax, ay);
+    overlayCtx.lineTo(ccx, ccy);
+    overlayCtx.strokeStyle = color;
+    overlayCtx.lineWidth = 1;
+    overlayCtx.setLineDash([4, 3]);
+    overlayCtx.stroke();
+    overlayCtx.setLineDash([]);
+  }
+
+  const [cx, cy] = toCanvas(anchor);
+  overlayCtx.fillStyle = color;
+  overlayCtx.font = "13px Segoe UI, Arial, sans-serif";
+  overlayCtx.textAlign = "center";
+  overlayCtx.fillText(label, cx, cy);
+  overlayCtx.textAlign = "left";
+}
+
+// Same labelPos/leader-line convention as drawPolygon, for an open
+// (unclosed, unfilled) length tracing — a polyline has no "inside" to test
+// a dragged label against, so any custom labelPos at all is treated as
+// "moved away from the default", and always gets a leader line back to the
+// line's centroid.
+function drawMeasuredLine(points, color, label, lineWidth, labelPos) {
+  if (points.length < 2) return;
+  overlayCtx.beginPath();
+  const [x0, y0] = toCanvas(points[0]);
+  overlayCtx.moveTo(x0, y0);
+  for (let i = 1; i < points.length; i++) {
+    const [x, y] = toCanvas(points[i]);
+    overlayCtx.lineTo(x, y);
+  }
+  overlayCtx.strokeStyle = color;
+  overlayCtx.lineWidth = lineWidth || 2;
+  overlayCtx.stroke();
+
+  const centroid = polygonCentroid(points);
+  const anchor = labelPos || centroid;
+
+  if (labelPos) {
     const [ax, ay] = toCanvas(anchor);
     const [ccx, ccy] = toCanvas(centroid);
     overlayCtx.beginPath();
@@ -905,12 +979,50 @@ function polygonAreaPageUnits(points) {
   return Math.abs(sum) / 2;
 }
 
-// Shared by the canvas overlay and the PDF exports — a room's label always
-// shows its name and computed area, looked up from the flat `rooms` list
-// (the source of truth for areaM2) rather than recomputed here.
-function roomLabelText(geoRoom) {
-  const flatRoom = rooms.find((r) => r.id === geoRoom.id);
-  return flatRoom ? `${geoRoom.name} — ${flatRoom.areaM2.toFixed(2)} m²` : geoRoom.name;
+// Sum of consecutive segment lengths — deliberately does NOT add a closing
+// segment back to the first point, unlike an area tracing's polygon: a
+// length tracing measures the lines actually drawn, not a shape's perimeter.
+function polylineLengthPageUnits(points) {
+  let sum = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    sum += distance(points[i], points[i + 1]);
+  }
+  return sum;
+}
+
+// Shortest distance from point p to the segment a-b — used to hit-test a
+// click against a length tracing's line, which (unlike an area's polygon)
+// has no interior for a simple point-in-shape test to work against.
+function distanceToSegment(p, a, b) {
+  const [px, py] = p;
+  const [ax, ay] = a;
+  const [bx, by] = b;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return distance(p, a);
+  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return distance(p, [ax + t * dx, ay + t * dy]);
+}
+
+function pointNearPolyline(p, points, thresholdPageUnits) {
+  for (let i = 0; i < points.length - 1; i++) {
+    if (distanceToSegment(p, points[i], points[i + 1]) <= thresholdPageUnits) return true;
+  }
+  return false;
+}
+
+// Shared by the canvas overlay and the PDF exports — a tracing's label
+// always shows its name and computed measurement, looked up from the flat
+// `tracings` list (the source of truth for areaM2/lengthM) rather than
+// recomputed here.
+function tracingLabelText(geoTracing) {
+  const flat = tracings.find((t) => t.id === geoTracing.id);
+  if (!flat) return geoTracing.name;
+  return geoTracing.kind === "length"
+    ? `${geoTracing.name} — ${flat.lengthM.toFixed(2)} m`
+    : `${geoTracing.name} — ${flat.areaM2.toFixed(2)} m²`;
 }
 
 function canvasPointFromEvent(evt) {
@@ -920,8 +1032,8 @@ function canvasPointFromEvent(evt) {
   return [cx / renderScale, cy / renderScale];
 }
 
-// Ray-casting point-in-polygon test, used to pick which room a click landed
-// on (page-space coordinates on both sides).
+// Ray-casting point-in-polygon test, used to pick which area tracing a
+// click landed on (page-space coordinates on both sides).
 function pointInPolygon(p, points) {
   let inside = false;
   const [x, y] = p;
@@ -938,10 +1050,10 @@ function pointInPolygon(p, points) {
 // handles are just as easy to grab whether you're zoomed in or out.
 const VERTEX_HIT_RADIUS_PX = 10;
 
-function hitTestVertex(room, p) {
+function hitTestVertex(tracing, p) {
   const thresholdPageUnits = VERTEX_HIT_RADIUS_PX / renderScale;
-  for (let i = 0; i < room.points.length; i++) {
-    if (distance(room.points[i], p) <= thresholdPageUnits) return i;
+  for (let i = 0; i < tracing.points.length; i++) {
+    if (distance(tracing.points[i], p) <= thresholdPageUnits) return i;
   }
   return -1;
 }
@@ -950,30 +1062,38 @@ function hitTestVertex(room, p) {
 // actual text rather than a single point.
 const LABEL_HIT_RADIUS_PX = 14;
 
-function hitTestLabel(room, p) {
-  const anchor = room.labelPos || polygonCentroid(room.points);
+function hitTestLabel(tracing, p) {
+  const anchor = tracing.labelPos || polygonCentroid(tracing.points);
   return distance(anchor, p) <= LABEL_HIT_RADIUS_PX / renderScale;
 }
+
+// Selecting a length tracing by clicking "inside" it doesn't make sense (an
+// open line has no interior), so clicks are tested against its line itself
+// within this radius instead — a bit more forgiving than a vertex handle's,
+// since a thin line is a smaller target than a filled area's polygon.
+const LINE_SELECT_RADIUS_PX = 8;
 
 // ---- Mode / tool state ----------------------------------------------------
 function resetToolState() {
   mode = "idle";
   calibTemp = { p1: null, p2: null };
   traceTemp = { page: null, points: [] };
-  editingRoom = null;
+  pendingTraceKind = null;
+  editingTracing = null;
   vertexDragState = null;
   labelDragState = null;
   scaleRatioForm.hidden = true;
   calibrationForm.hidden = true;
-  roomNameForm.hidden = true;
+  tracingNameForm.hidden = true;
   undoPointBtn.hidden = true;
-  finishRoomBtn.hidden = true;
+  finishAreaBtn.hidden = true;
+  measureLengthBtn.hidden = true;
   cancelScaleBtn.hidden = true;
   cancelTraceBtn.hidden = true;
 }
 
 overlayCanvas.addEventListener("click", (evt) => {
-  // A drag (panning the view, or dragging a room's vertex handle — both
+  // A drag (panning the view, or dragging a tracing's vertex handle — both
   // start on mousedown/mousemove on this same canvas) still ends with a
   // "click" event on mouseup even though the pointer moved, because native
   // click semantics don't care about distance travelled, only that
@@ -1005,47 +1125,53 @@ overlayCanvas.addEventListener("click", (evt) => {
 
   if (mode === "trace") {
     traceTemp.points.push(p);
-    finishRoomBtn.disabled = traceTemp.points.length < 3;
+    finishAreaBtn.disabled = traceTemp.points.length < 3;
+    measureLengthBtn.disabled = traceTemp.points.length < 2;
     redrawOverlay();
     return;
   }
 
   if (mode === "idle") {
     const geo = currentGeometry();
-    const hit = geo.rooms.slice().reverse().find((r) => pointInPolygon(p, r.points));
-    editingRoom = hit ? hit.id : null;
+    const thresholdPageUnits = LINE_SELECT_RADIUS_PX / renderScale;
+    const hit = geo.tracings
+      .slice()
+      .reverse()
+      .find((t) =>
+        t.kind === "length" ? pointNearPolyline(p, t.points, thresholdPageUnits) : pointInPolygon(p, t.points)
+      );
+    editingTracing = hit ? hit.id : null;
     redrawOverlay();
     setStatus(
       hit
-        ? `Editing "${hit.name}" — drag its corner handles to reshape it, or the circle on its label to move it.`
+        ? `Editing "${hit.name}" — drag its point handles to reshape it, or the circle on its label to move it.`
         : ""
     );
   }
 });
 
 // ---- Pan (click-drag) and zoom (mouse wheel) -------------------------------
-// Dragging a room's selected vertex handle (set up in mousedown below) takes
-// priority over panning for that gesture; anywhere else on the canvas still
-// pans as before.
+// Dragging a tracing's selected vertex handle (set up in mousedown below)
+// takes priority over panning for that gesture; anywhere else on the canvas
+// still pans as before.
 let panState = null;
 let suppressNextClick = false;
 
 overlayCanvas.addEventListener("mousedown", (evt) => {
-  if (mode === "idle" && editingRoom) {
+  if (mode === "idle" && editingTracing) {
     const geo = currentGeometry();
-    const room = geo.rooms.find((r) => r.id === editingRoom);
-    if (room) {
+    const tracing = geo.tracings.find((t) => t.id === editingTracing);
+    if (tracing) {
       const p = canvasPointFromEvent(evt);
       // Checked before the vertices — the label handle usually sits well
-      // inside the room, away from the corners, so there's little real
-      // ambiguity in practice.
-      if (hitTestLabel(room, p)) {
-        labelDragState = { roomId: room.id, dragged: false };
+      // clear of the points, so there's little real ambiguity in practice.
+      if (hitTestLabel(tracing, p)) {
+        labelDragState = { tracingId: tracing.id, dragged: false };
         return;
       }
-      const idx = hitTestVertex(room, p);
+      const idx = hitTestVertex(tracing, p);
       if (idx !== -1) {
-        vertexDragState = { roomId: room.id, pointIndex: idx, dragged: false };
+        vertexDragState = { tracingId: tracing.id, pointIndex: idx, dragged: false };
         return;
       }
     }
@@ -1064,9 +1190,9 @@ window.addEventListener("mousemove", (evt) => {
   if (labelDragState) {
     labelDragState.dragged = true;
     const geo = currentGeometry();
-    const room = geo.rooms.find((r) => r.id === labelDragState.roomId);
-    if (room) {
-      room.labelPos = canvasPointFromEvent(evt);
+    const tracing = geo.tracings.find((t) => t.id === labelDragState.tracingId);
+    if (tracing) {
+      tracing.labelPos = canvasPointFromEvent(evt);
       redrawOverlay();
     }
     return;
@@ -1075,9 +1201,9 @@ window.addEventListener("mousemove", (evt) => {
   if (vertexDragState) {
     vertexDragState.dragged = true;
     const geo = currentGeometry();
-    const room = geo.rooms.find((r) => r.id === vertexDragState.roomId);
-    if (room) {
-      room.points[vertexDragState.pointIndex] = canvasPointFromEvent(evt);
+    const tracing = geo.tracings.find((t) => t.id === vertexDragState.tracingId);
+    if (tracing) {
+      tracing.points[vertexDragState.pointIndex] = canvasPointFromEvent(evt);
       redrawOverlay();
     }
     return;
@@ -1108,7 +1234,7 @@ window.addEventListener("mouseup", () => {
 
   if (vertexDragState) {
     if (vertexDragState.dragged) {
-      recalcAllAreasForPage(currentPageNum);
+      recalcAllMeasurementsForPage(currentPageNum);
       suppressNextClick = true;
     }
     vertexDragState = null;
@@ -1158,20 +1284,25 @@ setScaleBtn.addEventListener("click", () => {
   );
 });
 
-traceRoomBtn.addEventListener("click", () => {
+traceBtn.addEventListener("click", () => {
   resetToolState();
   mode = "trace";
   traceTemp = { page: currentPageNum, points: [] };
   undoPointBtn.hidden = false;
-  finishRoomBtn.hidden = false;
-  finishRoomBtn.disabled = true;
+  finishAreaBtn.hidden = false;
+  finishAreaBtn.disabled = true;
+  measureLengthBtn.hidden = false;
+  measureLengthBtn.disabled = true;
   cancelTraceBtn.hidden = false;
-  setStatus("Click each corner of the room in order, then click “Finish room”.");
+  setStatus(
+    "Click each point of the outline in order, then click “Finish area” to close it as an area, or “Measure length” to just measure the lines drawn so far."
+  );
 });
 
 undoPointBtn.addEventListener("click", () => {
   traceTemp.points.pop();
-  finishRoomBtn.disabled = traceTemp.points.length < 3;
+  finishAreaBtn.disabled = traceTemp.points.length < 3;
+  measureLengthBtn.disabled = traceTemp.points.length < 2;
   redrawOverlay();
 });
 
@@ -1212,9 +1343,9 @@ function applyScaleRatio(n) {
   scaleRatioInput.value = "";
   resetToolState();
   redrawOverlay();
-  recalcAllAreasForPage(currentPageNum);
+  recalcAllMeasurementsForPage(currentPageNum);
   saveAutosave();
-  setStatus(`Scale set to 1:${n} for this page. Click “Trace room” to start on the first room.`);
+  setStatus(`Scale set to 1:${n} for this page. Click “Trace” to start your first tracing.`);
 }
 
 scaleRatioConfirmBtn.addEventListener("click", () => {
@@ -1253,9 +1384,9 @@ calibConfirmBtn.addEventListener("click", () => {
   };
   resetToolState();
   redrawOverlay();
-  recalcAllAreasForPage(currentPageNum);
+  recalcAllMeasurementsForPage(currentPageNum);
   saveAutosave();
-  setStatus("Scale set for this page. Click “Trace room” to start on the first room.");
+  setStatus("Scale set for this page. Click “Trace” to start your first tracing.");
 });
 
 calibCancelBtn.addEventListener("click", () => {
@@ -1263,40 +1394,64 @@ calibCancelBtn.addEventListener("click", () => {
   redrawOverlay();
 });
 
-finishRoomBtn.addEventListener("click", () => {
+finishAreaBtn.addEventListener("click", () => {
   if (traceTemp.points.length < 3) return;
-  roomNameForm.hidden = false;
-  roomNameInput.value = `Room ${rooms.length + 1}`;
-  roomColorInput.value = paletteColor(rooms.length);
-  roomNameInput.focus();
-  roomNameInput.select();
+  pendingTraceKind = "area";
+  openTracingNameForm();
 });
 
-roomNameConfirmBtn.addEventListener("click", () => {
+measureLengthBtn.addEventListener("click", () => {
+  if (traceTemp.points.length < 2) return;
+  pendingTraceKind = "length";
+  openTracingNameForm();
+});
+
+function openTracingNameForm() {
+  tracingNameForm.hidden = false;
+  tracingNameInput.placeholder = pendingTraceKind === "length" ? "e.g. Wall run" : "e.g. Living room";
+  tracingNameInput.value = `Tracing ${tracings.length + 1}`;
+  tracingColorInput.value = paletteColor(tracings.length);
+  tracingNameInput.focus();
+  tracingNameInput.select();
+}
+
+tracingNameConfirmBtn.addEventListener("click", () => {
   const geo = currentGeometry();
   if (!geo.calibration) {
     setStatus("Scale isn't set for this page anymore — set it again first.", true);
     return;
   }
-  const name = roomNameInput.value.trim() || `Room ${rooms.length + 1}`;
-  const color = roomColorInput.value || DEFAULT_ROOM_COLOR;
-  const areaPageUnits = polygonAreaPageUnits(traceTemp.points);
-  const areaM2 = areaPageUnits * geo.calibration.metersPerUnit * geo.calibration.metersPerUnit;
+  const name = tracingNameInput.value.trim() || `Tracing ${tracings.length + 1}`;
+  const color = tracingColorInput.value || DEFAULT_TRACING_COLOR;
+  const kind = pendingTraceKind || "area";
+  const id = nextTracingId++;
+  const points = traceTemp.points.slice();
 
-  const id = nextRoomId++;
-  geo.rooms.push({ id, name, points: traceTemp.points.slice(), color });
-  rooms.push({ id, page: currentPageNum, name, areaM2, color });
+  geo.tracings.push({ id, name, points, color, kind });
 
-  roomNameForm.hidden = true;
+  let measurementText;
+  if (kind === "length") {
+    const lengthPageUnits = polylineLengthPageUnits(points);
+    const lengthM = lengthPageUnits * geo.calibration.metersPerUnit;
+    tracings.push({ id, page: currentPageNum, name, color, kind, lengthM });
+    measurementText = `${lengthM.toFixed(2)} m`;
+  } else {
+    const areaPageUnits = polygonAreaPageUnits(points);
+    const areaM2 = areaPageUnits * geo.calibration.metersPerUnit * geo.calibration.metersPerUnit;
+    tracings.push({ id, page: currentPageNum, name, color, kind, areaM2 });
+    measurementText = `${areaM2.toFixed(2)} m²`;
+  }
+
+  tracingNameForm.hidden = true;
   resetToolState();
   redrawOverlay();
   updateResultsTable();
   saveAutosave();
-  setStatus(`Added "${name}" — ${areaM2.toFixed(2)} m². Trace another room, or move to the next page.`);
+  setStatus(`Added "${name}" — ${measurementText}. Trace another outline, or move to the next page.`);
 });
 
-roomNameCancelBtn.addEventListener("click", () => {
-  roomNameForm.hidden = true;
+tracingNameCancelBtn.addEventListener("click", () => {
+  tracingNameForm.hidden = true;
 });
 
 // None of these inline forms are real <form> elements (a plain <div>, same
@@ -1316,18 +1471,24 @@ function submitOnEnter(input, btn) {
 }
 submitOnEnter(scaleRatioInput, scaleRatioConfirmBtn);
 submitOnEnter(calibLengthInput, calibConfirmBtn);
-submitOnEnter(roomNameInput, roomNameConfirmBtn);
+submitOnEnter(tracingNameInput, tracingNameConfirmBtn);
 
-// If the scale is re-set on a page, existing rooms on that page keep their
-// traced outlines but their areas are recalculated against the new scale.
-function recalcAllAreasForPage(pageNum) {
+// If the scale is re-set on a page, existing tracings on that page keep
+// their drawn points but their area/length is recalculated against the new
+// scale.
+function recalcAllMeasurementsForPage(pageNum) {
   const geo = pageGeometry[pageNum];
   if (!geo || !geo.calibration) return;
-  geo.rooms.forEach((r) => {
-    const areaPageUnits = polygonAreaPageUnits(r.points);
-    const areaM2 = areaPageUnits * geo.calibration.metersPerUnit * geo.calibration.metersPerUnit;
-    const flat = rooms.find((x) => x.id === r.id);
-    if (flat) flat.areaM2 = areaM2;
+  geo.tracings.forEach((t) => {
+    const flat = tracings.find((x) => x.id === t.id);
+    if (!flat) return;
+    if (t.kind === "length") {
+      const lengthPageUnits = polylineLengthPageUnits(t.points);
+      flat.lengthM = lengthPageUnits * geo.calibration.metersPerUnit;
+    } else {
+      const areaPageUnits = polygonAreaPageUnits(t.points);
+      flat.areaM2 = areaPageUnits * geo.calibration.metersPerUnit * geo.calibration.metersPerUnit;
+    }
   });
   updateResultsTable();
 }
@@ -1356,26 +1517,26 @@ zoomOutBtn.addEventListener("click", () => {
   renderPage();
 });
 
-// Clicking a room row (see updateResultsTable) jumps the viewer to that
-// room's page and selects it, same as clicking its outline on the canvas —
-// resetToolState() first so any in-progress trace/calibration on the page
-// being left doesn't linger, and editingRoom is set *after* it (which would
-// otherwise clear it) so the room is already selected by the time the new
-// page's render finishes and calls redrawOverlay().
-function goToRoom(id, pageNum) {
+// Clicking a tracing's row (see updateResultsTable) jumps the viewer to
+// that tracing's page and selects it, same as clicking its outline on the
+// canvas — resetToolState() first so any in-progress trace/calibration on
+// the page being left doesn't linger, and editingTracing is set *after* it
+// (which would otherwise clear it) so the tracing is already selected by
+// the time the new page's render finishes and calls redrawOverlay().
+function goToTracing(id, pageNum) {
   resetToolState();
   if (pageNum !== currentPageNum) {
     currentPageNum = pageNum;
-    editingRoom = id;
+    editingTracing = id;
     renderPage();
   } else {
-    editingRoom = id;
+    editingTracing = id;
     redrawOverlay();
   }
-  const flatRoom = rooms.find((r) => r.id === id);
+  const flat = tracings.find((t) => t.id === id);
   setStatus(
-    flatRoom
-      ? `Editing "${flatRoom.name}" — drag its corner handles to reshape it, or the circle on its label to move it.`
+    flat
+      ? `Editing "${flat.name}" — drag its point handles to reshape it, or the circle on its label to move it.`
       : ""
   );
 }
@@ -1383,33 +1544,35 @@ function goToRoom(id, pageNum) {
 // ---- 3. Results table ----------------------------------------------------
 function updateResultsTable() {
   resultsBody.innerHTML = "";
-  let totalM2 = 0;
-  // Sort is stable, so rooms on the same page keep their original
+  let totalAreaM2 = 0;
+  let totalLengthM = 0;
+  let hasArea = false;
+  let hasLength = false;
+  // Sort is stable, so tracings on the same page keep their original
   // (creation) order relative to each other — only the page grouping
-  // changes. `rooms` itself stays in insertion order for everything else
-  // that reads it (naming defaults, copy/export), only this render is
-  // page-ordered.
-  const displayRooms = rooms.slice().sort((a, b) => a.page - b.page);
-  displayRooms.forEach((r) => {
-    totalM2 += r.areaM2;
+  // changes. `tracings` itself stays in insertion order for everything
+  // else that reads it (naming defaults, copy/export), only this render
+  // is page-ordered.
+  const displayTracings = tracings.slice().sort((a, b) => a.page - b.page);
+  displayTracings.forEach((t) => {
     const tr = document.createElement("tr");
 
     const colorTd = document.createElement("td");
     const colorInput = document.createElement("input");
     colorInput.type = "color";
-    colorInput.value = r.color || DEFAULT_ROOM_COLOR;
-    colorInput.title = "Room colour";
-    colorInput.addEventListener("input", () => updateRoomColor(r.id, colorInput.value));
+    colorInput.value = t.color || DEFAULT_TRACING_COLOR;
+    colorInput.title = "Tracing colour";
+    colorInput.addEventListener("input", () => updateTracingColor(t.id, colorInput.value));
     colorTd.appendChild(colorInput);
 
     const nameTd = document.createElement("td");
     const nameInput = document.createElement("input");
     nameInput.type = "text";
-    nameInput.className = "room-name-input";
-    nameInput.value = r.name;
-    nameInput.title = "Room name";
+    nameInput.className = "tracing-name-input";
+    nameInput.value = t.name;
+    nameInput.title = "Tracing name";
     nameInput.addEventListener("change", () => {
-      nameInput.value = updateRoomName(r.id, nameInput.value);
+      nameInput.value = updateTracingName(t.id, nameInput.value);
     });
     nameInput.addEventListener("keydown", (evt) => {
       if (evt.key === "Enter") nameInput.blur();
@@ -1417,30 +1580,38 @@ function updateResultsTable() {
     nameTd.appendChild(nameInput);
 
     const pageTd = document.createElement("td");
-    pageTd.textContent = r.page;
+    pageTd.textContent = t.page;
 
     // Read live off that page's own calibration rather than stored on the
-    // room, so it can't go stale if the page's scale is ever re-set.
+    // tracing, so it can't go stale if the page's scale is ever re-set.
     const scaleTd = document.createElement("td");
-    const pageGeo = pageGeometry[r.page];
+    const pageGeo = pageGeometry[t.page];
     scaleTd.textContent = pageGeo && pageGeo.calibration ? pageGeo.calibration.label : "—";
 
-    const m2Td = document.createElement("td");
-    m2Td.textContent = r.areaM2.toFixed(2);
+    const measurementTd = document.createElement("td");
+    if (t.kind === "length") {
+      hasLength = true;
+      totalLengthM += t.lengthM;
+      measurementTd.textContent = `${t.lengthM.toFixed(2)} m`;
+    } else {
+      hasArea = true;
+      totalAreaM2 += t.areaM2;
+      measurementTd.textContent = `${t.areaM2.toFixed(2)} m²`;
+    }
 
     const delTd = document.createElement("td");
     const delBtn = document.createElement("button");
     delBtn.className = "del-btn";
     delBtn.textContent = "✕";
-    delBtn.title = "Remove this room";
-    delBtn.addEventListener("click", () => removeRoom(r.id));
+    delBtn.title = "Remove this tracing";
+    delBtn.addEventListener("click", () => removeTracing(t.id));
     delTd.appendChild(delBtn);
 
     tr.appendChild(colorTd);
     tr.appendChild(nameTd);
     tr.appendChild(pageTd);
     tr.appendChild(scaleTd);
-    tr.appendChild(m2Td);
+    tr.appendChild(measurementTd);
     tr.appendChild(delTd);
     // Ignore clicks that landed on one of the row's own interactive
     // controls (colour swatch, name input, delete button) — those already
@@ -1448,62 +1619,82 @@ function updateResultsTable() {
     // meant to edit the name/colour would be surprising.
     tr.addEventListener("click", (evt) => {
       if (evt.target.closest("input, button")) return;
-      goToRoom(r.id, r.page);
+      goToTracing(t.id, t.page);
     });
     resultsBody.appendChild(tr);
   });
 
-  totalM2El.innerHTML = `<strong>${totalM2.toFixed(2)}</strong>`;
+  // Show each kind's total only if there's actually one of that kind —
+  // otherwise (including the very first "nothing traced yet" state) fall
+  // back to a single "0.00 m²" placeholder, matching this app's original
+  // always-area-only zero state.
+  let totalLines = [];
+  if (hasArea) totalLines.push(`${totalAreaM2.toFixed(2)} m²`);
+  if (hasLength) totalLines.push(`${totalLengthM.toFixed(2)} m`);
+  if (totalLines.length === 0) totalLines.push("0.00 m²");
+  totalMeasurementEl.innerHTML = totalLines.map((l) => `<strong>${l}</strong>`).join("<br>");
 }
 
-function removeRoom(id) {
-  rooms = rooms.filter((r) => r.id !== id);
+function removeTracing(id) {
+  tracings = tracings.filter((t) => t.id !== id);
   Object.values(pageGeometry).forEach((geo) => {
-    geo.rooms = geo.rooms.filter((r) => r.id !== id);
+    geo.tracings = geo.tracings.filter((t) => t.id !== id);
   });
-  if (editingRoom === id) editingRoom = null;
+  if (editingTracing === id) editingTracing = null;
   redrawOverlay();
   updateResultsTable();
   saveAutosave();
 }
 
-// Kept in sync on both the flat `rooms` list (what the results table's
+// Kept in sync on both the flat `tracings` list (what the results table's
 // swatch reflects) and the per-page geometry (what drawing/export reads) —
 // deliberately doesn't call updateResultsTable(), which would rebuild the
 // row out from under the very <input type="color"> the user is still
 // interacting with.
-function updateRoomColor(id, color) {
-  const flatRoom = rooms.find((r) => r.id === id);
-  if (flatRoom) flatRoom.color = color;
-  const geo = pageGeometry[flatRoom ? flatRoom.page : currentPageNum];
-  const geoRoom = geo && geo.rooms.find((r) => r.id === id);
-  if (geoRoom) geoRoom.color = color;
+function updateTracingColor(id, color) {
+  const flat = tracings.find((t) => t.id === id);
+  if (flat) flat.color = color;
+  const geo = pageGeometry[flat ? flat.page : currentPageNum];
+  const geoTracing = geo && geo.tracings.find((t) => t.id === id);
+  if (geoTracing) geoTracing.color = color;
   redrawOverlay();
   saveAutosave();
 }
 
-// Same pattern as updateRoomColor — kept in sync on both the flat list and
-// the per-page geometry, and deliberately skips updateResultsTable() so the
-// row isn't rebuilt out from under the input the user just typed into.
-function updateRoomName(id, name) {
-  const trimmed = name.trim() || "Room";
-  const flatRoom = rooms.find((r) => r.id === id);
-  if (flatRoom) flatRoom.name = trimmed;
-  const geo = pageGeometry[flatRoom ? flatRoom.page : currentPageNum];
-  const geoRoom = geo && geo.rooms.find((r) => r.id === id);
-  if (geoRoom) geoRoom.name = trimmed;
+// Same pattern as updateTracingColor — kept in sync on both the flat list
+// and the per-page geometry, and deliberately skips updateResultsTable() so
+// the row isn't rebuilt out from under the input the user just typed into.
+function updateTracingName(id, name) {
+  const trimmed = name.trim() || "Tracing";
+  const flat = tracings.find((t) => t.id === id);
+  if (flat) flat.name = trimmed;
+  const geo = pageGeometry[flat ? flat.page : currentPageNum];
+  const geoTracing = geo && geo.tracings.find((t) => t.id === id);
+  if (geoTracing) geoTracing.name = trimmed;
   redrawOverlay();
   saveAutosave();
   return trimmed;
 }
 
 copyResultsBtn.addEventListener("click", () => {
-  let text = "Room\tPage\tm²\n";
-  rooms.forEach((r) => {
-    text += `${r.name}\t${r.page}\t${r.areaM2.toFixed(2)}\n`;
+  let text = "Tracing\tPage\tMeasurement\n";
+  let totalAreaM2 = 0;
+  let totalLengthM = 0;
+  let hasArea = false;
+  let hasLength = false;
+  tracings.forEach((t) => {
+    if (t.kind === "length") {
+      hasLength = true;
+      totalLengthM += t.lengthM;
+      text += `${t.name}\t${t.page}\t${t.lengthM.toFixed(2)} m\n`;
+    } else {
+      hasArea = true;
+      totalAreaM2 += t.areaM2;
+      text += `${t.name}\t${t.page}\t${t.areaM2.toFixed(2)} m²\n`;
+    }
   });
-  const totalM2 = rooms.reduce((s, r) => s + r.areaM2, 0);
-  text += `Total\t\t${totalM2.toFixed(2)}\n`;
+  if (hasArea || !hasLength) text += `Total area\t\t${totalAreaM2.toFixed(2)} m²\n`;
+  if (hasLength) text += `Total length\t\t${totalLengthM.toFixed(2)} m\n`;
 
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(
@@ -1524,31 +1715,32 @@ function showCopyFallback(text) {
 }
 
 clearAllBtn.addEventListener("click", () => {
-  rooms = [];
-  nextRoomId = 1;
+  tracings = [];
+  nextTracingId = 1;
   pageGeometry = {};
   resetToolState();
   redrawOverlay();
   updateResultsTable();
   clearAutosave();
-  setStatus("Cleared all rooms and scale settings on every page.");
+  setStatus("Cleared all tracings and scale settings on every page.");
 });
 
-// ---- 4. Download PDF with room data embedded -------------------------------
+// ---- 4. Download PDF with tracing data embedded ----------------------------
 // Builds a modified copy of the original PDF — never the in-memory copy
 // pdf.js is using, since getDocument() can transfer/detach that buffer —
-// with the traced outlines/labels drawn directly onto the pages (so the
+// with the tracings/labels drawn directly onto the pages (so the
 // measurements are visible in any ordinary PDF viewer), optionally a
-// summary page listing every room and its area, and the raw geometry
-// embedded as a JSON file attachment so re-opening this exact file restores
-// the exact editable state — whether it kept every original page or only
-// the traced ones (see buildDownloadPdfBytes for how the embedded page
-// numbers get re-keyed to match whatever pages actually ended up in it).
+// summary page listing every tracing and its measurement, and the raw
+// geometry embedded as a JSON file attachment so re-opening this exact
+// file restores the exact editable state — whether it kept every original
+// page or only the traced ones (see buildDownloadPdfBytes for how the
+// embedded page numbers get re-keyed to match whatever pages actually
+// ended up in it).
 function suggestDownloadName(name, pagesMode, targetPageNum) {
   const base = (name || "floor-plan").replace(/\.pdf$/i, "");
   if (pagesMode === "traced") return `${base}-traced-pages.pdf`;
   if (pagesMode === "current") return `${base}-page-${targetPageNum}.pdf`;
-  return `${base}-with-rooms.pdf`;
+  return `${base}-with-tracings.pdf`;
 }
 
 function hexToPdfRgb(lib, hex) {
@@ -1559,33 +1751,44 @@ function hexToPdfRgb(lib, hex) {
   return lib.rgb(r, g, b);
 }
 
-// Draws every traced room on `geo` onto `pdfLibPage`, each in its own
-// chosen colour, using `viewportAtScale1` to map our stored points (pdf.js's
+// Draws every tracing on `geo` onto `pdfLibPage`, each in its own chosen
+// colour, using `viewportAtScale1` to map our stored points (pdf.js's
 // scale-1 viewport space, see canvasPointFromEvent) back to the PDF's own
 // coordinate space (bottom-left origin, correctly accounting for page
 // rotation), which is what pdf-lib's drawing calls expect.
-function drawRoomAnnotations(lib, pdfLibPage, geo, viewportAtScale1, font) {
-  geo.rooms.forEach((room) => {
-    if (room.points.length < 3) return;
-    const color = hexToPdfRgb(lib, room.color || DEFAULT_ROOM_COLOR);
+function drawTracingAnnotations(lib, pdfLibPage, geo, viewportAtScale1, font) {
+  geo.tracings.forEach((tracing) => {
+    const isLength = tracing.kind === "length";
+    if (isLength ? tracing.points.length < 2 : tracing.points.length < 3) return;
+    const color = hexToPdfRgb(lib, tracing.color || DEFAULT_TRACING_COLOR);
     const toPdfPoint = (p) => {
       const [x, y] = viewportAtScale1.convertToPdfPoint(p[0], p[1]);
       return { x, y };
     };
-    const pts = room.points.map(toPdfPoint);
-    for (let i = 0; i < pts.length; i++) {
-      const a = pts[i];
-      const b = pts[(i + 1) % pts.length];
-      pdfLibPage.drawLine({ start: a, end: b, thickness: 1.5, color });
+    const pts = tracing.points.map(toPdfPoint);
+    if (isLength) {
+      for (let i = 0; i < pts.length - 1; i++) {
+        pdfLibPage.drawLine({ start: pts[i], end: pts[i + 1], thickness: 1.5, color });
+      }
+    } else {
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % pts.length];
+        pdfLibPage.drawLine({ start: a, end: b, thickness: 1.5, color });
+      }
     }
 
-    // Same labelPos/leader-line logic as the canvas overlay (drawPolygon)
-    // — room.points and room.labelPos are both in pdf.js's scale-1 page
-    // space, so pointInPolygon works the same way here as it does there.
-    const centroidPage = polygonCentroid(room.points);
-    const anchorPage = room.labelPos || centroidPage;
+    // Same labelPos/leader-line logic as the canvas overlay (drawPolygon /
+    // drawMeasuredLine) — tracing.points and tracing.labelPos are both in
+    // pdf.js's scale-1 page space, so pointInPolygon works the same way
+    // here as it does there.
+    const centroidPage = polygonCentroid(tracing.points);
+    const anchorPage = tracing.labelPos || centroidPage;
     const anchor = toPdfPoint(anchorPage);
-    if (room.labelPos && !pointInPolygon(room.labelPos, room.points)) {
+    const showLeader = isLength
+      ? !!tracing.labelPos
+      : tracing.labelPos && !pointInPolygon(tracing.labelPos, tracing.points);
+    if (showLeader) {
       pdfLibPage.drawLine({
         start: anchor,
         end: toPdfPoint(centroidPage),
@@ -1595,7 +1798,7 @@ function drawRoomAnnotations(lib, pdfLibPage, geo, viewportAtScale1, font) {
       });
     }
 
-    const label = roomLabelText(room);
+    const label = tracingLabelText(tracing);
     pdfLibPage.drawText(label, {
       x: anchor.x - label.length * 2.3,
       y: anchor.y,
@@ -1606,29 +1809,30 @@ function drawRoomAnnotations(lib, pdfLibPage, geo, viewportAtScale1, font) {
   });
 }
 
-// A plain, paginating table of the given rooms and their areas appended to
-// the end of the document — header row, one row per room, a total row,
-// starting a fresh page whenever the current one runs out of room. Uses the
-// same page size as the plan itself so it sits consistently alongside it.
-// `summaryRooms` is every room for a whole-document/traced-pages download,
-// or just the rooms on the kept page for a current-page-only download —
-// listing rooms that aren't even in this file would be confusing.
-async function addSummaryPages(lib, outDoc, pageWidth, pageHeight, summaryRooms) {
+// A plain, paginating table of the given tracings and their measurements
+// appended to the end of the document — header row, one row per tracing, a
+// total row, starting a fresh page whenever the current one runs out of
+// room. Uses the same page size as the plan itself so it sits consistently
+// alongside it. `summaryTracings` is every tracing for a whole-document/
+// traced-pages download, or just the ones on the kept page for a
+// current-page-only download — listing tracings that aren't even in this
+// file would be confusing.
+async function addSummaryPages(lib, outDoc, pageWidth, pageHeight, summaryTracings) {
   const font = await outDoc.embedFont(lib.StandardFonts.Helvetica);
   const boldFont = await outDoc.embedFont(lib.StandardFonts.HelveticaBold);
   const black = lib.rgb(0, 0, 0);
   const grey = lib.rgb(0.6, 0.6, 0.6);
   const margin = 40;
   const rowHeight = 18;
-  const colX = { name: margin, page: pageWidth - 170, area: pageWidth - 90 };
+  const colX = { name: margin, page: pageWidth - 170, measurement: pageWidth - 90 };
 
   let page = null;
   let y = 0;
 
   function drawHeaderRow() {
-    page.drawText("Room", { x: colX.name, y, size: 11, font: boldFont, color: black });
+    page.drawText("Tracing", { x: colX.name, y, size: 11, font: boldFont, color: black });
     page.drawText("Page", { x: colX.page, y, size: 11, font: boldFont, color: black });
-    page.drawText("m²", { x: colX.area, y, size: 11, font: boldFont, color: black });
+    page.drawText("Measurement", { x: colX.measurement, y, size: 11, font: boldFont, color: black });
     y -= 6;
     page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 1, color: grey });
     y -= rowHeight;
@@ -1638,7 +1842,7 @@ async function addSummaryPages(lib, outDoc, pageWidth, pageHeight, summaryRooms)
     page = outDoc.addPage([pageWidth, pageHeight]);
     y = pageHeight - margin;
     if (withTitle) {
-      page.drawText("Floor Areas", { x: margin, y, size: 16, font: boldFont, color: black });
+      page.drawText("Takeoff Summary", { x: margin, y, size: 16, font: boldFont, color: black });
       y -= 28;
     }
     drawHeaderRow();
@@ -1646,13 +1850,23 @@ async function addSummaryPages(lib, outDoc, pageWidth, pageHeight, summaryRooms)
 
   startPage(true);
 
-  let total = 0;
-  summaryRooms.forEach((r) => {
+  let totalArea = 0;
+  let totalLength = 0;
+  let hasArea = false;
+  let hasLength = false;
+  summaryTracings.forEach((t) => {
     if (y < margin + rowHeight * 2) startPage(false);
-    page.drawText(r.name, { x: colX.name, y, size: 10, font, color: black });
-    page.drawText(String(r.page), { x: colX.page, y, size: 10, font, color: black });
-    page.drawText(r.areaM2.toFixed(2), { x: colX.area, y, size: 10, font, color: black });
-    total += r.areaM2;
+    const measureText = t.kind === "length" ? `${t.lengthM.toFixed(2)} m` : `${t.areaM2.toFixed(2)} m²`;
+    page.drawText(t.name, { x: colX.name, y, size: 10, font, color: black });
+    page.drawText(String(t.page), { x: colX.page, y, size: 10, font, color: black });
+    page.drawText(measureText, { x: colX.measurement, y, size: 10, font, color: black });
+    if (t.kind === "length") {
+      hasLength = true;
+      totalLength += t.lengthM;
+    } else {
+      hasArea = true;
+      totalArea += t.areaM2;
+    }
     y -= rowHeight;
   });
 
@@ -1663,37 +1877,48 @@ async function addSummaryPages(lib, outDoc, pageWidth, pageHeight, summaryRooms)
     thickness: 1.5,
     color: black,
   });
-  page.drawText("Total", { x: colX.name, y, size: 11, font: boldFont, color: black });
-  page.drawText(total.toFixed(2), { x: colX.area, y, size: 11, font: boldFont, color: black });
+  // Same kind-symmetric rule as the on-screen totals: don't show a "Total
+  // area: 0.00 m²" line when nothing here is actually an area (and vice
+  // versa), except in the genuinely-empty case, which keeps the original
+  // always-area-only placeholder.
+  if (hasArea || !hasLength) {
+    page.drawText("Total area", { x: colX.name, y, size: 11, font: boldFont, color: black });
+    page.drawText(`${totalArea.toFixed(2)} m²`, { x: colX.measurement, y, size: 11, font: boldFont, color: black });
+    if (hasLength) y -= rowHeight;
+  }
+  if (hasLength) {
+    page.drawText("Total length", { x: colX.name, y, size: 11, font: boldFont, color: black });
+    page.drawText(`${totalLength.toFixed(2)} m`, { x: colX.measurement, y, size: 11, font: boldFont, color: black });
+  }
 }
 
 // pagesMode: "all" keeps every original page; "traced" builds a brand-new
-// document with just the pages that actually have a traced room. Either
+// document with just the pages that actually have a tracing on them. Either
 // way the embedded round-trip geometry JSON is keyed to *this output
 // document's own page numbers*, not the original file's — when pages are
 // dropped, page 1 of the trimmed copy might be page 5 of the original, so
 // the geometry saved under "page 5" gets re-keyed to "page 1" here. That's
-// what makes a reopened copy of either kind restore correctly: its
-// embedded data always describes the pages actually in that file.
-// includeSummary appends the floor-areas table as extra page(s) either way.
+// what makes a reopened copy of either kind restore correctly: its embedded
+// data always describes the pages actually in that file. includeSummary
+// appends the takeoff summary table as extra page(s) either way.
 async function buildDownloadPdfBytes({ pagesMode, includeSummary, targetPageNum }) {
   const lib = await loadPdfLib();
   let outDoc;
   let pageEntries; // [{ origPageNum, pdfLibPage }], in the order they end up in outDoc
   let geometryForEmbed;
-  let summaryRooms = rooms;
+  let summaryTracings = tracings;
 
   if (pagesMode === "traced") {
     const tracedPageNums = Object.keys(pageGeometry)
       .map(Number)
       .filter((pageNum) => {
         const geo = pageGeometry[pageNum];
-        return geo && geo.rooms && geo.rooms.length > 0;
+        return geo && geo.tracings && geo.tracings.length > 0;
       })
       .sort((a, b) => a - b);
 
     if (tracedPageNums.length === 0) {
-      throw new Error("No traced rooms yet — trace at least one room first.");
+      throw new Error("No tracings yet — add at least one first.");
     }
 
     const srcDoc = await lib.PDFDocument.load(originalBytes.slice());
@@ -1715,34 +1940,34 @@ async function buildDownloadPdfBytes({ pagesMode, includeSummary, targetPageNum 
 
     pageEntries = [{ origPageNum, pdfLibPage: copiedPage }];
     geometryForEmbed = pageGeometry[origPageNum] ? { 1: pageGeometry[origPageNum] } : {};
-    summaryRooms = rooms.filter((r) => r.page === origPageNum);
+    summaryTracings = tracings.filter((t) => t.page === origPageNum);
   } else {
     outDoc = await lib.PDFDocument.load(originalBytes.slice());
     pageEntries = outDoc.getPages().map((pdfLibPage, i) => ({ origPageNum: i + 1, pdfLibPage }));
     geometryForEmbed = pageGeometry;
   }
 
-  const geometryJson = JSON.stringify({ pageGeometry: geometryForEmbed, nextRoomId }, null, 2);
+  const geometryJson = JSON.stringify({ pageGeometry: geometryForEmbed, nextTracingId }, null, 2);
   await outDoc.attach(new TextEncoder().encode(geometryJson), "floor-area-takeoff.json", {
     mimeType: "application/json",
-    description: "Floor Area Takeoff — scale calibration and traced room outlines",
+    description: "Surface Takeoff — scale calibration and tracings",
   });
 
   const font = await outDoc.embedFont(lib.StandardFonts.Helvetica);
   for (const { origPageNum, pdfLibPage } of pageEntries) {
     const geo = pageGeometry[origPageNum];
-    if (!geo || !geo.rooms || geo.rooms.length === 0) continue;
+    if (!geo || !geo.tracings || geo.tracings.length === 0) continue;
     // currentPdf is pdf.js's parse of the *original* file, so this lookup
     // always needs the original page number, regardless of where that
     // page ended up (or whether it was renumbered) in outDoc.
     const pdfjsPage = await currentPdf.getPage(origPageNum);
     const viewportAtScale1 = pdfjsPage.getViewport({ scale: 1 });
-    drawRoomAnnotations(lib, pdfLibPage, geo, viewportAtScale1, font);
+    drawTracingAnnotations(lib, pdfLibPage, geo, viewportAtScale1, font);
   }
 
   if (includeSummary) {
     const refPage = outDoc.getPages()[0];
-    await addSummaryPages(lib, outDoc, refPage.getWidth(), refPage.getHeight(), summaryRooms);
+    await addSummaryPages(lib, outDoc, refPage.getWidth(), refPage.getHeight(), summaryTracings);
   }
 
   return outDoc.save();

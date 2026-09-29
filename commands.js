@@ -1,4 +1,4 @@
-/* Floor Area Takeoff — ribbon command (the whole add-in)
+/* Surface Takeoff — ribbon command (the whole add-in)
  *
  * This used to be a task pane plus a pop-up plan viewer, both running
  * inside Outlook's embedded dialog/task-pane WebView. That WebView turned
@@ -24,7 +24,7 @@ const MAX_LINKS = 10;
 
 Office.onReady();
 
-Office.actions.associate("openFloorAreaApp", (event) => {
+Office.actions.associate("openSurfaceTakeoffApp", (event) => {
   const item = Office.context.mailbox.item;
   if (!item) {
     event.completed();
@@ -33,7 +33,7 @@ Office.actions.associate("openFloorAreaApp", (event) => {
 
   if (!Office.context.requirements.isSetSupported("OpenBrowserWindowApi", "1.1")) {
     showErrorNotification(
-      `This version of Outlook can't open the Floor Area Takeoff app directly — open ${APP_URL} in your browser instead.`
+      `This version of Outlook can't open the Surface Takeoff app directly — open ${APP_URL} in your browser instead.`
     );
     event.completed();
     return;

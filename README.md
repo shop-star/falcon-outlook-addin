@@ -1,20 +1,22 @@
-# Floor Area Takeoff
+# Surface Takeoff
 
 Two things live in this repo:
 
 1. **A standalone browser app** (`app/`) — open a PDF plan (or a zip
    containing one), click two points on a known measurement to calibrate
-   the scale, then trace each room's outline. Results (area in m², with a
-   running total) update live, you can copy them straight into a
-   spreadsheet or quote, and download an annotated copy of the PDF with the
-   outlines burned onto the pages and the room data embedded in the file
+   the scale, then trace each outline. Close a tracing as an **area** (its
+   m²) or leave it open and **measure its length** (its m) instead — both
+   kinds show up together in the results, with a running total for each.
+   Results update live, you can copy them straight into a spreadsheet or
+   quote, and download an annotated copy of the PDF with the tracings
+   burned onto the pages and the underlying data embedded in the file
    itself (so reopening that downloaded copy restores your exact progress —
    no account or server involved).
 2. **A minimal Outlook add-in** (`manifest.xml`, `commands.html`,
-   `commands.js`) — adds a "Floor Areas" button to the ribbon when you're
-   reading an email. Clicking it opens the app above in a real browser
-   window, with the open email's subject, PDF/zip attachment names, and any
-   links found in its body carried over so you have a head start.
+   `commands.js`) — adds a "Surface Takeoff" button to the ribbon when
+   you're reading an email. Clicking it opens the app above in a real
+   browser window, with the open email's subject, PDF/zip attachment names,
+   and any links found in its body carried over so you have a head start.
 
 Everything runs in your browser — a PDF is never uploaded anywhere. There's
 no subscription, no per-use cost, and no account to sign up for.
@@ -72,8 +74,8 @@ and `commands.js` (`APP_URL`) to your own base URL first.
 **Classic Outlook for Windows:** **File → Manage Add-ins** opens the same
 web dialog above, or use **Home → Get Add-ins → My add-ins**.
 
-Once added, open any email and you'll see a **Floor Areas** button in the
-ribbon.
+Once added, open any email and you'll see a **Surface Takeoff** button in
+the ribbon.
 
 > **Note:** some organizations restrict end-users from sideloading custom
 > add-ins (a tenant admin setting). If "Add from file" is missing or
@@ -88,7 +90,7 @@ ribbon.
 
 ## Using it
 
-1. Open the email with the plan attached, click **Floor Areas** in the
+1. Open the email with the plan attached, click **Surface Takeoff** in the
    ribbon — the app opens in a new browser tab, pre-filled with that
    email's subject, attachment names, and any links found in the body.
 2. Save the PDF attachment from Outlook's own UI (or download it from one
@@ -102,42 +104,50 @@ ribbon.
    scale**, or click one of the **1:50 / 1:100 / 1:200** preset buttons for
    an instant one-click set. The typed-scale shortcut assumes the PDF's
    page size matches the real sheet size (i.e. it wasn't resized on
-   export); if areas come out wrong, use the click-and-measure method
-   instead.
-4. In **Trace rooms**, click **Trace room**, click around a room's outline
-   corner by corner, then **Finish room**, give it a name, and pick its
-   colour (a different one is suggested each time, but pick your own if
-   you like). Repeat for each room (and each page, if the plan has
-   multiple floors — you'll need to set the scale once per page). To fix
-   up a room afterward, click its outline (when you're not actively
-   tracing or setting scale) to select it, then drag its corner handles to
-   reshape it — the area updates as you drag — or drag the circle on its
-   label to reposition the label itself (even outside the room, which
-   draws a thin line back to it so it's still clearly that room's label).
-   Both the room's outline on the plan and its label always show the area
-   (e.g. "Bedroom — 16.59 m²"), and you can change a room's name or colour
-   anytime directly in the results table.
-5. Read the running list and total in the **Floor areas** pane on the
+   export); if measurements come out wrong, use the click-and-measure
+   method instead.
+4. In **Add tracings**, click **Trace**, then click around an outline
+   point by point. When you're done, either:
+   - Click **Finish area** (needs at least 3 points) to close it as an
+     area — its m² is computed from the enclosed shape, or
+   - Click **Measure length** (needs at least 2 points) to leave it open
+     and just measure the total length of the lines you drew, without
+     closing it into a shape.
+
+   Either way, give it a name and pick its colour (a different one is
+   suggested each time, but pick your own if you like). Repeat for each
+   tracing (and each page, if the plan has multiple floors — you'll need
+   to set the scale once per page). To fix up a tracing afterward, click
+   its outline/line (when you're not actively tracing or setting scale) to
+   select it, then drag its point handles to reshape it — its measurement
+   updates as you drag — or drag the circle on its label to reposition the
+   label itself (even away from the tracing, which draws a thin line back
+   to it so it's still clearly that tracing's label). Both a tracing's
+   drawing on the plan and its label always show its measurement (e.g.
+   "Bedroom — 16.59 m²" or "Wall run A — 4.70 m"), and you can change a
+   tracing's name or colour anytime directly in the results table.
+5. Read the running list and totals in the **Takeoff results** pane on the
    right (it updates live as you trace, ordered by page, and also shows
-   each room's page and the scale that was set on it) — click anywhere on
-   a room's row to jump straight to its page in the viewer and select it
-   for editing, or use the **Go to page** dropdown at the top of the pane
-   to jump to any page directly. Use **Copy results** to paste a
-   tab-separated list into Excel or your quote.
+   each tracing's page and the scale that was set on it) — click anywhere
+   on a tracing's row to jump straight to its page in the viewer and
+   select it for editing, or use the **Go to page** dropdown to jump to
+   any page directly. Areas and lengths are totalled separately (only
+   shown when you actually have one of that kind). Use **Copy results**
+   to paste a tab-separated list into Excel or your quote.
 6. The **Download** section is always there, no button to open it first —
    pick which pages to include (just the current page, the whole
-   document, or only the pages with a traced room on them) and whether to
-   append a summary page listing every room and its area (on by default),
-   then click **Download**.
+   document, or only the pages with a tracing on them) and whether to
+   append a summary page listing every tracing and its measurement (on by
+   default), then click **Download**.
 
 If the numbered steps feel cramped stacked on top of each other, the
 **Layout** control at the top of the page switches to putting **1. Open a
 plan**, **2. Set scale**, and **4. Download** in a narrower column on the
-left, with the trace-rooms viewer filling the rest of the width — the
-**Floor areas** pane always stays on the right in either case. Pick
+left, with the tracing viewer filling the rest of the width — the
+**Takeoff results** pane always stays on the right in either case. Pick
 whichever suits your screen; it's remembered next time you open the app.
 
-Your scale and traced rooms are saved automatically as you work, to your
+Your scale and tracings are saved automatically as you work, to your
 browser's local storage for that exact file (by name and size), and the
 open file itself is also kept (in IndexedDB, which allows much more room
 than local storage) — so simply refreshing the page, or accidentally
@@ -146,16 +156,17 @@ no need to re-pick the file. That's inherently per-browser/per-device,
 unlike the old Outlook-item-storage approach — but the **downloaded** PDF
 also carries its own progress embedded in it (see above), so passing that
 file along (by email, OneDrive, wherever) is what carries your progress
-across devices or to someone else. **Clear all** wipes the saved room/scale
-progress for the current file (not the remembered-open-file part), so use
-it when you actually want to start over.
+across devices or to someone else. **Clear all** wipes the saved
+tracing/scale progress for the current file (not the remembered-open-file
+part), so use it when you actually want to start over.
 
 ## Limitations to know about
 
-- This is a **manual trace** tool, not automatic room detection — it won't
+- This is a **manual trace** tool, not automatic detection — it won't
   guess wall lines for you. That trade-off is deliberate: automatic
   detection on real construction drawings (furniture, dimension lines,
-  hatching) is unreliable, and for quoting you want areas you can trust.
+  hatching) is unreliable, and for quoting you want measurements you can
+  trust.
 - Multi-page plans need the scale set separately on each page (a ground
   floor and first floor page are usually drawn at different points on the
   sheet, so we don't assume they share a scale).

@@ -36,10 +36,10 @@ h2 { font-size: 14px; margin: 0 0 8px; color: var(--brand-dark); }
 /* ---- Main layout ----------------------------------------------------
    The results pane is always a persistent column on the right, in both
    layout modes — it's not part of the numbered 1-4 workflow, so it never
-   moves. What the "Stacked" / "1, 2 & 4 on the left" toggle controls is
-   only how the numbered flow on the left arranges itself: fully stacked
-   in one column, or with the short sections (1, 2, 4) narrowed into their
-   own column so the trace-room viewer (3) gets more width. */
+   moves. What the "Stacked" / "Columns" toggle controls is only how the
+   numbered flow on the left arranges itself: fully stacked in one column,
+   or with the short sections (1, 2, 4) narrowed into their own column so
+   the tracing viewer (3) gets more width. */
 #mainLayout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
@@ -316,7 +316,7 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
   border-radius: 3px;
   cursor: pointer;
 }
-.room-name-input {
+.tracing-name-input {
   width: 100%;
   min-width: 90px;
   padding: 3px 5px;
@@ -326,8 +326,8 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
   font: inherit;
   color: inherit;
 }
-.room-name-input:hover { border-color: var(--border); }
-.room-name-input:focus {
+.tracing-name-input:hover { border-color: var(--border); }
+.tracing-name-input:focus {
   border-color: var(--brand);
   background: #fff;
   outline: none;
