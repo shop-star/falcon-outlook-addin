@@ -127,7 +127,6 @@ let labelDragState = null; // { tracingId, dragged }
 
 // ---- DOM refs ----------------------------------------------------------
 const statusBarEl = document.getElementById("statusBar");
-const fileNameHeadingEl = document.getElementById("fileNameHeading");
 
 const mainLayoutEl = document.getElementById("mainLayout");
 const layoutStackedBtn = document.getElementById("layoutStackedBtn");
@@ -149,6 +148,7 @@ const renameFileConfirmBtn = document.getElementById("renameFileConfirmBtn");
 const renameFileCancelBtn = document.getElementById("renameFileCancelBtn");
 
 const scaleSectionEl = document.getElementById("scaleSection");
+const toolsSectionEl = document.getElementById("toolsSection");
 const viewerSectionEl = document.getElementById("viewerSection");
 const resultsPaneEl = document.getElementById("resultsPane");
 
@@ -669,7 +669,6 @@ function showZipPicker(entries) {
 // regardless of which one's async chain happens to finish last.
 let openRequestToken = 0;
 function showCurrentFileName() {
-  fileNameHeadingEl.textContent = `3. Add tracings — "${currentFileName}"`;
   currentFileNameEl.textContent = currentFileName;
 }
 
@@ -696,6 +695,7 @@ function openPdfFromBytes(fileName, bytes, opts) {
           resetToolState();
           setScaleBtn.disabled = false;
           scaleSectionEl.hidden = false;
+          toolsSectionEl.hidden = false;
           viewerSectionEl.hidden = false;
           resultsPaneEl.hidden = false;
           downloadSectionEl.hidden = false;

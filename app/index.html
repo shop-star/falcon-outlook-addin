@@ -115,8 +115,8 @@
     <div id="scaleInfo" class="scale-info" hidden></div>
   </section>
 
-  <section id="viewerSection" class="panel" hidden>
-    <h2 id="fileNameHeading">3. Add tracings</h2>
+  <section id="toolsSection" class="panel" hidden>
+    <h2>3. Add tracings</h2>
 
     <div class="toolbar">
       <div class="toolbar-group toolbar-group-bordered">
@@ -142,14 +142,15 @@
       <button id="measureLengthBtn" hidden disabled>Measure length</button>
       <button id="cancelTraceBtn" hidden>Cancel</button>
     </div>
+  </section>
 
+  <section id="viewerSection" class="panel viewer-panel" aria-label="Plan viewer" hidden>
     <div id="canvasScroller" class="canvas-scroller">
       <div id="canvasStack" class="canvas-stack">
         <canvas id="pdfCanvas"></canvas>
         <canvas id="overlayCanvas"></canvas>
       </div>
     </div>
-
   </section>
 
   <section id="downloadSection" class="panel" hidden>

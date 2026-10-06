@@ -165,10 +165,11 @@ the ribbon.
    default), then click **Download**.
 
 If the numbered steps feel cramped stacked on top of each other, the
-**Layout** control at the top of the page switches to putting **1. Open a
-plan**, **2. Set scale**, and **4. Download** in a narrower column on the
-left, with the tracing viewer filling the rest of the width — the
-**Takeoff results** pane always stays on the right in either case. Pick
+**Layout** control at the top of the page switches to putting all four
+numbered sections (including **3. Add tracings**, which holds the page,
+zoom and trace controls) in a narrow column on the left, with the plan
+itself filling the middle — the **Takeoff results** pane always stays on
+the right, at the same width, in either case. Pick
 whichever suits your screen; it's remembered next time you open the app.
 
 Your scale and tracings are saved automatically as you work, to your

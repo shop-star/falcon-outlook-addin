@@ -36,34 +36,64 @@ h2 { font-size: 14px; margin: 0 0 8px; color: var(--brand-dark); }
 /* ---- Main layout ----------------------------------------------------
    The results pane is always a persistent column on the right, in both
    layout modes — it's not part of the numbered 1-4 workflow, so it never
-   moves. What the "Stacked" / "Columns" toggle controls is only how the
-   numbered flow on the left arranges itself: fully stacked in one column,
-   or with the short sections (1, 2, 4) narrowed into their own column so
-   the tracing viewer (3) gets more width. */
+   moves, and its width comes from one variable both modes share so it's
+   exactly the same size in either. The PDF viewer is unnumbered — just the
+   plan itself; its controls live in section 3. What the "Stacked" /
+   "Columns" toggle controls is only how the rest arranges itself: fully
+   stacked in one column (with the viewer right under section 3), or with
+   the numbered sections narrowed into their own column so the viewer gets
+   the full middle width. */
+:root {
+  --results-width: 440px;
+  --sections-width: 260px;
+}
+@media (max-width: 1200px) {
+  :root {
+    --results-width: 380px;
+    --sections-width: 230px;
+  }
+}
 #mainLayout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  grid-template-columns: minmax(0, 1fr) var(--results-width);
+  /* The trailing 1fr row soaks up any extra height from the items that
+     span every row (the results pane here, the viewer too in Columns),
+     instead of it being shared out as gaps between the sections. */
+  grid-template-rows: repeat(5, auto) 1fr;
   align-items: start;
   gap: 14px;
 }
 #mainLayout #intakeSection { grid-column: 1; grid-row: 1; }
 #mainLayout #scaleSection { grid-column: 1; grid-row: 2; }
-#mainLayout #viewerSection { grid-column: 1; grid-row: 3; }
-#mainLayout #downloadSection { grid-column: 1; grid-row: 4; }
-#mainLayout #resultsPane { grid-column: 2; grid-row: 1 / span 4; }
+#mainLayout #toolsSection { grid-column: 1; grid-row: 3; }
+#mainLayout #viewerSection { grid-column: 1; grid-row: 4; }
+#mainLayout #downloadSection { grid-column: 1; grid-row: 5; }
+#mainLayout #resultsPane { grid-column: 2; grid-row: 1 / span 6; }
 /* Belt and braces: if the results table is ever wider than its column
    (very long scale labels, say), it scrolls inside the pane rather than
    hanging off the right of the screen. */
 #resultsPane { min-width: 0; overflow-x: auto; }
 
 #mainLayout.layout-sidebar {
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr) minmax(300px, 380px);
+  grid-template-columns: var(--sections-width) minmax(0, 1fr) var(--results-width);
+  grid-template-rows: repeat(4, auto) 1fr;
 }
 #mainLayout.layout-sidebar #intakeSection { grid-column: 1; grid-row: 1; }
 #mainLayout.layout-sidebar #scaleSection { grid-column: 1; grid-row: 2; }
-#mainLayout.layout-sidebar #downloadSection { grid-column: 1; grid-row: 3; }
-#mainLayout.layout-sidebar #viewerSection { grid-column: 2; grid-row: 1 / span 3; }
-#mainLayout.layout-sidebar #resultsPane { grid-column: 3; grid-row: 1 / span 3; }
+#mainLayout.layout-sidebar #toolsSection { grid-column: 1; grid-row: 3; }
+#mainLayout.layout-sidebar #downloadSection { grid-column: 1; grid-row: 4; }
+#mainLayout.layout-sidebar #viewerSection { grid-column: 2; grid-row: 1 / span 5; }
+#mainLayout.layout-sidebar #resultsPane { grid-column: 3; grid-row: 1 / span 5; }
+
+/* In the narrow Columns-mode column, "Go to page" drops onto its own line
+   inside the page-navigation group's border instead of overflowing it. */
+.layout-sidebar #toolsSection .toolbar-group-bordered { flex-wrap: wrap; }
+.layout-sidebar #toolsSection .page-jump {
+  flex-basis: 100%;
+  padding: 6px 0 0;
+  border-left: none;
+  border-top: 1px solid var(--border);
+}
 
 @media (max-width: 900px) {
   #mainLayout,
@@ -72,11 +102,13 @@ h2 { font-size: 14px; margin: 0 0 8px; color: var(--brand-dark); }
   }
   #mainLayout #intakeSection,
   #mainLayout #scaleSection,
+  #mainLayout #toolsSection,
   #mainLayout #viewerSection,
   #mainLayout #downloadSection,
   #mainLayout #resultsPane,
   #mainLayout.layout-sidebar #intakeSection,
   #mainLayout.layout-sidebar #scaleSection,
+  #mainLayout.layout-sidebar #toolsSection,
   #mainLayout.layout-sidebar #viewerSection,
   #mainLayout.layout-sidebar #downloadSection,
   #mainLayout.layout-sidebar #resultsPane {
@@ -185,6 +217,7 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
   flex-wrap: wrap;
   margin-bottom: 10px;
 }
+.panel > .toolbar:last-child { margin-bottom: 0; }
 .toolbar-group {
   display: flex;
   align-items: center;
@@ -197,6 +230,9 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
 }
 #pageIndicator, #zoomIndicator { font-size: 13px; color: var(--text-muted); min-width: 64px; text-align: center; }
 
+/* The viewer is just the plan — no heading or inner padding, only the
+   scroller's own border. */
+.viewer-panel { padding: 0; border: none; }
 .canvas-scroller {
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -312,6 +348,9 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
   border-bottom: 1px solid var(--border);
 }
 .results-table th { font-size: 12px; }
+/* The name column takes whatever width is spare; the rest fit their content. */
+.results-table th:nth-child(2),
+.results-table td:nth-child(2) { width: 100%; }
 .results-table tbody tr { cursor: pointer; }
 .results-table tbody tr:hover { background: var(--bg-muted); }
 .results-table tbody tr.just-added { background: #eef7f5; transition: background 0.6s; }
