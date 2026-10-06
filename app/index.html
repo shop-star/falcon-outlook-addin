@@ -37,7 +37,21 @@
     <div id="currentFileInfo" class="current-file-info" hidden>
       <p class="muted">Currently open:</p>
       <p id="currentFileNameEl" class="current-file-name"></p>
+      <button id="renameFileBtn">Rename</button>
       <button id="changeFileBtn">Open a different file</button>
+    </div>
+    <div id="renameFileForm" class="inline-form" hidden>
+      <label>
+        File name:
+        <div class="inline-form-row">
+          <input id="renameFileInput" type="text" />
+          <span class="muted rename-ext">.pdf</span>
+        </div>
+      </label>
+      <div class="inline-form-actions">
+        <button id="renameFileConfirmBtn" class="primary">Rename</button>
+        <button id="renameFileCancelBtn">Cancel</button>
+      </div>
     </div>
     <div id="zipPicker" class="zip-picker" hidden>
       <p class="muted">That zip has more than one PDF — pick which one to open:</p>

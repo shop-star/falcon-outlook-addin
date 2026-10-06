@@ -164,7 +164,10 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
   color: var(--brand-dark);
   word-break: break-all;
 }
-#changeFileBtn { margin-left: auto; font-size: 12px; padding: 4px 10px; }
+#renameFileBtn,
+#changeFileBtn { font-size: 12px; padding: 4px 10px; }
+#renameFileBtn { margin-left: auto; }
+.rename-ext { align-self: center; }
 
 .zip-picker { margin-top: 12px; }
 .zip-picker-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
