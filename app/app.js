@@ -5,7 +5,8 @@
  * natively, which is the whole reason this exists (see README) — the
  * Outlook add-in's embedded dialog WebView never reliably supported either.
  *
- * Ingestion is a plain PDF or ZIP file, picked or dragged in. A companion
+ * Ingestion is a plain PDF or ZIP file, picked or dragged in — or one or
+ * more images, combined into a new PDF first (see openImagesAsPdf). A companion
  * Outlook add-in (see manifest.xml) can open this page pre-filled with the
  * open email's subject, attachment names, and any links found in its body,
  * via ?subject=&attachment=&link= query params — see initFromEmailPanel.
@@ -400,16 +401,35 @@ layoutSidebarBtn.addEventListener("click", () => setLayout("sidebar"));
   })
 );
 dropZone.addEventListener("drop", (evt) => {
-  const file = evt.dataTransfer.files && evt.dataTransfer.files[0];
-  if (file) handleFile(file);
+  const files = evt.dataTransfer.files;
+  if (files && files.length > 0) handleFiles(Array.from(files));
 });
 pickFileBtn.addEventListener("click", () => fileInput.click());
 changeFileBtn.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
-  const file = fileInput.files && fileInput.files[0];
-  if (file) handleFile(file);
+  const files = fileInput.files ? Array.from(fileInput.files) : [];
+  if (files.length > 0) handleFiles(files);
   fileInput.value = "";
 });
+
+const IMAGE_NAME_RE = /\.(jpe?g|png|gif|webp|bmp)$/i;
+function isImageFile(file) {
+  return IMAGE_NAME_RE.test(file.name || "") || /^image\//.test(file.type || "");
+}
+
+// One PDF or ZIP opens as before. One or more images (plans sometimes
+// arrive as photos/scans rather than PDFs) get combined into a brand-new
+// PDF, one image per page, which is then opened exactly as if it had been
+// a PDF all along — so tracing, autosave, the remembered-open-file restore
+// and the downloaded round-trip copy all work unchanged.
+function handleFiles(files) {
+  const images = files.filter(isImageFile);
+  if (images.length > 0) {
+    openImagesAsPdf(images, files.length - images.length);
+    return;
+  }
+  handleFile(files[0]);
+}
 
 function handleFile(file) {
   const name = (file.name || "").toLowerCase();
@@ -421,9 +441,164 @@ function handleFile(file) {
       .arrayBuffer()
       .then((buf) => openPdfFromBytes(file.name, new Uint8Array(buf)))
       .catch((e) => setStatus(`Couldn't read "${file.name}" — ` + describeError(e), true));
+  } else if (isImageFile(file)) {
+    openImagesAsPdf([file]);
   } else {
-    setStatus(`"${file.name}" doesn't look like a PDF or a ZIP file.`, true);
+    setStatus(`"${file.name}" doesn't look like a PDF, ZIP, or image file.`, true);
   }
+}
+
+// ---- Images → PDF ----------------------------------------------------------
+// Reads the bits of a JPEG/PNG header that matter here: the recorded
+// resolution (so a scan saved at, say, 300 DPI becomes a page of its real
+// printed size, and the "1:100"-style scale shortcut still works on it) and,
+// for JPEGs, the EXIF orientation (phone photos are often stored sideways
+// with a "rotate me" flag that pdf-lib wouldn't honour on its own).
+function readImageInfo(bytes) {
+  const info = { kind: null, dpi: null, orientation: 1 };
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes.length > 8 && view.getUint32(0) === 0x89504e47) {
+    info.kind = "png";
+    let off = 8;
+    while (off + 12 <= bytes.length) {
+      const len = view.getUint32(off);
+      const type = String.fromCharCode(bytes[off + 4], bytes[off + 5], bytes[off + 6], bytes[off + 7]);
+      if (type === "pHYs" && len >= 9 && bytes[off + 16] === 1) {
+        info.dpi = view.getUint32(off + 8) * 0.0254; // pixels per metre → per inch
+      }
+      if (type === "IDAT" || type === "IEND") break;
+      off += 12 + len;
+    }
+  } else if (bytes.length > 4 && view.getUint16(0) === 0xffd8) {
+    info.kind = "jpeg";
+    let off = 2;
+    while (off + 4 <= bytes.length && bytes[off] === 0xff) {
+      const marker = bytes[off + 1];
+      const len = view.getUint16(off + 2);
+      const seg = off + 4;
+      if (marker === 0xda || marker === 0xd9) break; // start of image data
+      if (marker === 0xe0 && len >= 16 && String.fromCharCode(...bytes.subarray(seg, seg + 4)) === "JFIF") {
+        const units = bytes[seg + 7];
+        const xDensity = view.getUint16(seg + 8);
+        if (units === 1) info.dpi = xDensity;
+        else if (units === 2) info.dpi = xDensity * 2.54;
+      } else if (marker === 0xe1 && String.fromCharCode(...bytes.subarray(seg, seg + 4)) === "Exif") {
+        try {
+          const tiff = seg + 6;
+          const little = view.getUint16(tiff) === 0x4949;
+          const ifd0 = tiff + view.getUint32(tiff + 4, little);
+          const count = view.getUint16(ifd0, little);
+          for (let i = 0; i < count; i++) {
+            const entry = ifd0 + 2 + i * 12;
+            if (view.getUint16(entry, little) === 0x0112) {
+              info.orientation = view.getUint16(entry + 8, little);
+            }
+          }
+        } catch (e) {
+          // Malformed EXIF — just treat it as upright.
+        }
+      }
+      off += 2 + len;
+    }
+  }
+  // Plenty of images record a meaningless 72 or 96 "DPI" (or nothing) —
+  // only trust a value that looks like a real scan resolution.
+  if (!(info.dpi >= 100 && info.dpi <= 2400)) info.dpi = null;
+  return info;
+}
+
+// Re-draws an image through a canvas, which the browser decodes with its
+// EXIF orientation applied — used for rotated JPEGs and for formats pdf-lib
+// can't embed directly (GIF/WebP/BMP).
+async function reencodeImage(file, asJpeg) {
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext("2d");
+  if (asJpeg) {
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  ctx.drawImage(bitmap, 0, 0);
+  if (bitmap.close) bitmap.close();
+  const blob = await new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("the browser couldn't convert this image"))),
+      asJpeg ? "image/jpeg" : "image/png",
+      0.95
+    )
+  );
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+// With no trustworthy resolution in the file, images are laid out at this
+// many pixels per inch — only affects the page's nominal size (and so the
+// typed "1:100" shortcut), never a scale set by measuring a known length.
+const DEFAULT_IMAGE_DPI = 150;
+
+async function buildPdfFromImages(lib, files) {
+  const doc = await lib.PDFDocument.create();
+  let allHaveDpi = true;
+  for (const file of files) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const info = readImageInfo(bytes);
+    let embedded;
+    if (info.kind === "jpeg" && info.orientation === 1) {
+      embedded = await doc.embedJpg(bytes);
+    } else if (info.kind === "png") {
+      embedded = await doc.embedPng(bytes);
+    } else if (info.kind === "jpeg") {
+      embedded = await doc.embedJpg(await reencodeImage(file, true));
+    } else {
+      embedded = await doc.embedPng(await reencodeImage(file, false));
+    }
+    if (!info.dpi) allHaveDpi = false;
+    const ptsPerPx = 72 / (info.dpi || DEFAULT_IMAGE_DPI);
+    const width = embedded.width * ptsPerPx;
+    const height = embedded.height * ptsPerPx;
+    const page = doc.addPage([width, height]);
+    page.drawImage(embedded, { x: 0, y: 0, width, height });
+  }
+  // A fixed date keeps the output byte-for-byte identical for the same
+  // images, so re-picking them later finds the same autosaved tracings
+  // (autosave is keyed by file name + size).
+  const fixedDate = new Date(0);
+  doc.setCreationDate(fixedDate);
+  doc.setModificationDate(fixedDate);
+  doc.setProducer("Surface Takeoff");
+  return { bytes: await doc.save(), allHaveDpi };
+}
+
+function combinedImagesPdfName(files) {
+  const base = (files[0].name || "plan").replace(/\.[^.]+$/, "");
+  return files.length === 1 ? `${base}.pdf` : `${base} (+${files.length - 1} more).pdf`;
+}
+
+function openImagesAsPdf(files, skippedCount) {
+  zipPicker.hidden = true;
+  // File pickers and drag-and-drop don't promise any particular order, so
+  // pages follow the file names ("page 2" before "page 10").
+  const sorted = files
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  const fileName = combinedImagesPdfName(sorted);
+  setStatus(sorted.length === 1 ? `Converting "${sorted[0].name}" to a PDF…` : `Combining ${sorted.length} images into one PDF…`);
+  loadPdfLib()
+    .then((lib) => buildPdfFromImages(lib, sorted))
+    .then(
+      ({ bytes, allHaveDpi }) => {
+        openPdfFromBytes(fileName, bytes, {
+          loadedMessage:
+            `Made "${fileName}" from ${sorted.length === 1 ? "your image" : `${sorted.length} images (one per page)`}. ` +
+            (allHaveDpi
+              ? "Set the scale, then trace each outline."
+              : "Set the scale by measuring a known dimension — a typed scale like 1:100 won't be accurate for an image.") +
+            (skippedCount ? ` (${skippedCount} non-image file${skippedCount === 1 ? " was" : "s were"} ignored — open a PDF or ZIP on its own.)` : ""),
+        });
+      },
+      (err) => setStatus("Couldn't turn those images into a PDF — " + describeError(err), true)
+    );
 }
 
 function handleZipFile(file) {
@@ -436,7 +611,21 @@ function handleZipFile(file) {
           (f) => !f.dir && /\.pdf$/i.test(f.name)
         );
         if (pdfEntries.length === 0) {
-          setStatus(`No PDF files found inside "${file.name}".`, true);
+          const imageEntries = Object.values(zip.files).filter(
+            (f) => !f.dir && /\.(jpe?g|png)$/i.test(f.name) && !/(^|\/)(__MACOSX\/|\._)/.test(f.name)
+          );
+          if (imageEntries.length === 0) {
+            setStatus(`No PDF or image files found inside "${file.name}".`, true);
+            return;
+          }
+          Promise.all(
+            imageEntries.map((entry) =>
+              entry.async("blob").then((blob) => new File([blob], entry.name.split("/").pop()))
+            )
+          ).then(
+            (imageFiles) => openImagesAsPdf(imageFiles),
+            (err) => setStatus(`Couldn't extract images from "${file.name}" — ` + describeError(err), true)
+          );
           return;
         }
         if (pdfEntries.length === 1) {
@@ -481,7 +670,7 @@ function showZipPicker(entries) {
 // openRequestToken makes only the *latest* call's result ever get applied,
 // regardless of which one's async chain happens to finish last.
 let openRequestToken = 0;
-function openPdfFromBytes(fileName, bytes) {
+function openPdfFromBytes(fileName, bytes, opts) {
   const myToken = ++openRequestToken;
   setStatus(`Loading "${fileName}"…`);
   loadPdfJs().then(
@@ -514,7 +703,7 @@ function openPdfFromBytes(fileName, bytes) {
           populatePageSelect(pdf.numPages);
           renderPage();
           updateResultsTable();
-          setStatus(`Loaded "${fileName}". Set the scale, then trace each outline.`);
+          setStatus((opts && opts.loadedMessage) || `Loaded "${fileName}". Set the scale, then trace each outline.`);
           restorePreviousProgress(pdf, fileName, bytes.length);
           persistCurrentFile(fileName, bytes);
         },

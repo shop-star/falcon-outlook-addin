@@ -30,9 +30,9 @@
   <section id="intakeSection" class="panel">
     <h2>1. Open a plan</h2>
     <div id="dropZone" class="drop-zone">
-      <p>Drag a PDF or ZIP file here, or</p>
-      <button id="pickFileBtn" class="primary">Choose a file</button>
-      <input id="fileInput" type="file" accept=".pdf,.zip,application/pdf,application/zip" hidden />
+      <p>Drag a PDF or ZIP file here — or one or more plan images (JPG, PNG), which get combined into a PDF — or</p>
+      <button id="pickFileBtn" class="primary">Choose file(s)</button>
+      <input id="fileInput" type="file" accept=".pdf,.zip,.jpg,.jpeg,.png,.gif,.webp,.bmp,application/pdf,application/zip,image/*" multiple hidden />
     </div>
     <div id="currentFileInfo" class="current-file-info" hidden>
       <p class="muted">Currently open:</p>
