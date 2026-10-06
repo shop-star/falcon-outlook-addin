@@ -115,10 +115,6 @@ let nextTracingId = 1;
 let mode = "idle"; // idle | calibrate | trace
 let calibTemp = { p1: null, p2: null };
 let traceTemp = { page: null, points: [] };
-// Set right before opening the naming form (by the "Finish area" or
-// "Measure length" button), so the confirm handler knows which kind of
-// tracing it's actually completing.
-let pendingTraceKind = null; // "area" | "length"
 
 // Clicking an already-drawn tracing's outline while idle selects it for
 // editing — its points are drawn as draggable handles until you click
@@ -185,11 +181,6 @@ const calibUnitSelect = document.getElementById("calibUnitSelect");
 const calibConfirmBtn = document.getElementById("calibConfirmBtn");
 const calibCancelBtn = document.getElementById("calibCancelBtn");
 
-const tracingNameForm = document.getElementById("tracingNameForm");
-const tracingNameInput = document.getElementById("tracingNameInput");
-const tracingColorInput = document.getElementById("tracingColorInput");
-const tracingNameConfirmBtn = document.getElementById("tracingNameConfirmBtn");
-const tracingNameCancelBtn = document.getElementById("tracingNameCancelBtn");
 
 const scaleInfoEl = document.getElementById("scaleInfo");
 
@@ -1278,13 +1269,11 @@ function resetToolState() {
   mode = "idle";
   calibTemp = { p1: null, p2: null };
   traceTemp = { page: null, points: [] };
-  pendingTraceKind = null;
   editingTracing = null;
   vertexDragState = null;
   labelDragState = null;
   scaleRatioForm.hidden = true;
   calibrationForm.hidden = true;
-  tracingNameForm.hidden = true;
   undoPointBtn.hidden = true;
   finishAreaBtn.hidden = true;
   measureLengthBtn.hidden = true;
@@ -1594,36 +1583,27 @@ calibCancelBtn.addEventListener("click", () => {
   redrawOverlay();
 });
 
+// Finishing a tracing adds it straight to the results pane under a default
+// name, then puts the cursor in that row's name box — type a name and press
+// Enter (or just carry on tracing and name it later).
 finishAreaBtn.addEventListener("click", () => {
   if (traceTemp.points.length < 3) return;
-  pendingTraceKind = "area";
-  openTracingNameForm();
+  addTracing("area");
 });
 
 measureLengthBtn.addEventListener("click", () => {
   if (traceTemp.points.length < 2) return;
-  pendingTraceKind = "length";
-  openTracingNameForm();
+  addTracing("length");
 });
 
-function openTracingNameForm() {
-  tracingNameForm.hidden = false;
-  tracingNameInput.placeholder = pendingTraceKind === "length" ? "e.g. Wall run" : "e.g. Living room";
-  tracingNameInput.value = `Tracing ${tracings.length + 1}`;
-  tracingColorInput.value = paletteColor(tracings.length);
-  tracingNameInput.focus();
-  tracingNameInput.select();
-}
-
-tracingNameConfirmBtn.addEventListener("click", () => {
+function addTracing(kind) {
   const geo = currentGeometry();
   if (!geo.calibration) {
     setStatus("Scale isn't set for this page anymore — set it again first.", true);
     return;
   }
-  const name = tracingNameInput.value.trim() || `Tracing ${tracings.length + 1}`;
-  const color = tracingColorInput.value || DEFAULT_TRACING_COLOR;
-  const kind = pendingTraceKind || "area";
+  const name = `Tracing ${tracings.length + 1}`;
+  const color = paletteColor(tracings.length);
   const id = nextTracingId++;
   const points = traceTemp.points.slice();
 
@@ -1642,17 +1622,24 @@ tracingNameConfirmBtn.addEventListener("click", () => {
     measurementText = `${areaM2.toFixed(2)} m²`;
   }
 
-  tracingNameForm.hidden = true;
   resetToolState();
   redrawOverlay();
   updateResultsTable();
   saveAutosave();
-  setStatus(`Added "${name}" — ${measurementText}. Trace another outline, or move to the next page.`);
-});
+  setStatus(`Added ${measurementText} — type a name for it in the results pane, then press Enter.`);
+  focusTracingName(id);
+}
 
-tracingNameCancelBtn.addEventListener("click", () => {
-  tracingNameForm.hidden = true;
-});
+function focusTracingName(id) {
+  const row = resultsBody.querySelector(`tr[data-tracing-id="${id}"]`);
+  if (!row) return;
+  const input = row.querySelector(".tracing-name-input");
+  row.classList.add("just-added");
+  setTimeout(() => row.classList.remove("just-added"), 2500);
+  row.scrollIntoView({ block: "nearest" });
+  input.focus({ preventScroll: true });
+  input.select();
+}
 
 // None of these inline forms are real <form> elements (a plain <div>, same
 // reasoning as everywhere else in this app — no accidental page navigation
@@ -1671,7 +1658,6 @@ function submitOnEnter(input, btn) {
 }
 submitOnEnter(scaleRatioInput, scaleRatioConfirmBtn);
 submitOnEnter(calibLengthInput, calibConfirmBtn);
-submitOnEnter(tracingNameInput, tracingNameConfirmBtn);
 
 // ---- Renaming the open file -------------------------------------------------
 // The name is what downloads are called, and also half of the autosave key
@@ -1808,6 +1794,7 @@ function updateResultsTable() {
   const displayTracings = tracings.slice().sort((a, b) => a.page - b.page);
   displayTracings.forEach((t) => {
     const tr = document.createElement("tr");
+    tr.dataset.tracingId = String(t.id);
 
     const colorTd = document.createElement("td");
     const colorInput = document.createElement("input");
@@ -1821,13 +1808,17 @@ function updateResultsTable() {
     const nameInput = document.createElement("input");
     nameInput.type = "text";
     nameInput.className = "tracing-name-input";
+    // A text input's default width (~20 characters) would otherwise set the
+    // table's minimum width and push it out past the results pane's edge —
+    // size=1 lets the CSS min-width decide instead.
+    nameInput.size = 1;
     nameInput.value = t.name;
     nameInput.title = "Tracing name";
     nameInput.addEventListener("change", () => {
       nameInput.value = updateTracingName(t.id, nameInput.value);
     });
     nameInput.addEventListener("keydown", (evt) => {
-      if (evt.key === "Enter") nameInput.blur();
+      if (evt.key === "Enter" || evt.key === "Escape") nameInput.blur();
     });
     nameTd.appendChild(nameInput);
 

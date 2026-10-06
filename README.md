@@ -132,8 +132,10 @@ the ribbon.
      and just measure the total length of the lines you drew, without
      closing it into a shape.
 
-   Either way, give it a name and pick its colour (a different one is
-   suggested each time, but pick your own if you like). Repeat for each
+   Either way, it's added straight to the **Takeoff results** pane with
+   the cursor already in its name box — type a name and press Enter (or
+   carry on and name it later). Each one gets a different colour, which
+   you can change from its swatch in the results pane. Repeat for each
    tracing (and each page, if the plan has multiple floors — you'll need
    to set the scale once per page). To fix up a tracing afterward, click
    its outline/line (when you're not actively tracing or setting scale) to

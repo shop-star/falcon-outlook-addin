@@ -51,6 +51,10 @@ h2 { font-size: 14px; margin: 0 0 8px; color: var(--brand-dark); }
 #mainLayout #viewerSection { grid-column: 1; grid-row: 3; }
 #mainLayout #downloadSection { grid-column: 1; grid-row: 4; }
 #mainLayout #resultsPane { grid-column: 2; grid-row: 1 / span 4; }
+/* Belt and braces: if the results table is ever wider than its column
+   (very long scale labels, say), it scrolls inside the pane rather than
+   hanging off the right of the screen. */
+#resultsPane { min-width: 0; overflow-x: auto; }
 
 #mainLayout.layout-sidebar {
   grid-template-columns: minmax(240px, 320px) minmax(0, 1fr) minmax(300px, 380px);
@@ -304,11 +308,13 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
 }
 .results-table th, .results-table td {
   text-align: left;
-  padding: 5px 6px;
+  padding: 5px 4px;
   border-bottom: 1px solid var(--border);
 }
+.results-table th { font-size: 12px; }
 .results-table tbody tr { cursor: pointer; }
 .results-table tbody tr:hover { background: var(--bg-muted); }
+.results-table tbody tr.just-added { background: #eef7f5; transition: background 0.6s; }
 .results-table tfoot td { border-top: 2px solid var(--brand); border-bottom: none; }
 .results-table .del-btn { padding: 2px 6px; }
 .results-table input[type="color"] {
@@ -321,7 +327,7 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
 }
 .tracing-name-input {
   width: 100%;
-  min-width: 90px;
+  min-width: 80px;
   padding: 3px 5px;
   border: 1px solid transparent;
   border-radius: 3px;
