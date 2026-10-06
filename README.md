@@ -41,6 +41,22 @@ onto the page, or a zip file containing one (if it has more than one PDF
 inside, you'll be asked which one to open) — no Outlook or email needed at
 all. Everything else works the same as described below.
 
+### Plans that arrive as images
+
+If a plan comes as photos or scans (JPG, PNG — also GIF, WebP or BMP)
+instead of a PDF, pick or drop **one or more images at once** (or a zip
+holding only images). The app combines them into a single new PDF, one
+image per page, with pages ordered by file name (so `page 2` comes before
+`page 10`). Phone photos are turned upright automatically. From then on
+it's an ordinary PDF: set the scale, trace, and download as usual. The
+downloaded copy carries your tracings like any other, and a refresh brings
+it straight back. Picking the same images again later also restores your
+saved progress.
+
+Set the scale on an image by **measuring a known dimension**. A typed
+scale like `1:100` only works if the image records its real scan
+resolution (e.g. a 300 DPI scan). The app tells you when it doesn't.
+
 ## What you need to host the add-in
 
 - A Microsoft 365 work/school account.
