@@ -151,7 +151,11 @@ the ribbon.
    each tracing's page and the scale that was set on it) — click anywhere
    on a tracing's row to jump straight to its page in the viewer and
    select it for editing, or use the **Go to page** dropdown to jump to
-   any page directly. Areas and lengths are totalled separately (only
+   any page directly. Drag a row by its ⠿ handle to reorder the list (or
+   click the handle and use the arrow keys) — new tracings are added
+   after the others on their page, and **Copy results** and the PDF
+   summary page follow whatever order you set. Areas and lengths are
+   totalled separately (only
    shown when you actually have one of that kind). Use **Copy results**
    to paste a tab-separated list into Excel or your quote.
 6. The **Download** section is always there, no button to open it first —

@@ -317,6 +317,25 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
 .results-table tbody tr.just-added { background: #eef7f5; transition: background 0.6s; }
 .results-table tfoot td { border-top: 2px solid var(--brand); border-bottom: none; }
 .results-table .del-btn { padding: 2px 6px; }
+.results-table .grip-cell { white-space: nowrap; }
+.drag-handle {
+  padding: 0 1px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 22px;
+  vertical-align: top;
+  cursor: grab;
+  touch-action: none;
+}
+.drag-handle:hover:not(:disabled) { background: transparent; color: var(--brand-dark); }
+.results-table tbody tr.dragging {
+  background: #eef7f5;
+  outline: 1px dashed var(--brand);
+  cursor: grabbing;
+}
+.results-table tbody tr.dragging .drag-handle { cursor: grabbing; }
 .results-table input[type="color"] {
   width: 22px;
   height: 22px;
@@ -327,7 +346,7 @@ button.primary:hover:not(:disabled), a.btn.primary:hover { background: var(--bra
 }
 .tracing-name-input {
   width: 100%;
-  min-width: 80px;
+  min-width: 64px;
   padding: 3px 5px;
   border: 1px solid transparent;
   border-radius: 3px;

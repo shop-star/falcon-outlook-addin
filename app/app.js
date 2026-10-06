@@ -109,6 +109,8 @@ let originalBytes = null;
 let pageGeometry = {};
 
 /** flat list mirrored to the results table. kind: "area" (has areaM2) or "length" (has lengthM) */
+// Its order is the results pane's order (which you can drag to change), and
+// copy/summary follow it too — saved as each geometry tracing's `order`.
 let tracings = []; // { id, page, name, color, kind, areaM2? , lengthM? }
 let nextTracingId = 1;
 
@@ -787,6 +789,14 @@ function applyRestoredGeometry(geometry, nextId) {
       }
     });
   });
+  // Files saved before reordering existed have no `order` — they fall back
+  // to page order, which is how the results pane always showed them.
+  const orderOf = (t) => {
+    const geoTracing = pageGeometry[t.page].tracings.find((g) => g.id === t.id);
+    return geoTracing && typeof geoTracing.order === "number" ? geoTracing.order : Infinity;
+  };
+  tracings.sort((a, b) => orderOf(a) - orderOf(b) || a.page - b.page);
+  syncTracingOrder();
   redrawOverlay();
   updateResultsTable();
 }
@@ -1613,12 +1623,12 @@ function addTracing(kind) {
   if (kind === "length") {
     const lengthPageUnits = polylineLengthPageUnits(points);
     const lengthM = lengthPageUnits * geo.calibration.metersPerUnit;
-    tracings.push({ id, page: currentPageNum, name, color, kind, lengthM });
+    insertTracing({ id, page: currentPageNum, name, color, kind, lengthM });
     measurementText = `${lengthM.toFixed(2)} m`;
   } else {
     const areaPageUnits = polygonAreaPageUnits(points);
     const areaM2 = areaPageUnits * geo.calibration.metersPerUnit * geo.calibration.metersPerUnit;
-    tracings.push({ id, page: currentPageNum, name, color, kind, areaM2 });
+    insertTracing({ id, page: currentPageNum, name, color, kind, areaM2 });
     measurementText = `${areaM2.toFixed(2)} m²`;
   }
 
@@ -1628,6 +1638,33 @@ function addTracing(kind) {
   saveAutosave();
   setStatus(`Added ${measurementText} — type a name for it in the results pane, then press Enter.`);
   focusTracingName(id);
+}
+
+// A new tracing goes after the last one on its page (or any earlier page),
+// so by default the list stays grouped by page — dragging can then put it
+// anywhere.
+function insertTracing(tracing) {
+  const at = tracings.findIndex((t) => t.page > tracing.page);
+  tracings.splice(at === -1 ? tracings.length : at, 0, tracing);
+  syncTracingOrder();
+}
+
+function syncTracingOrder() {
+  tracings.forEach((t, i) => {
+    const geo = pageGeometry[t.page];
+    const geoTracing = geo && geo.tracings.find((g) => g.id === t.id);
+    if (geoTracing) geoTracing.order = i;
+  });
+}
+
+function moveTracing(id, toIndex) {
+  const from = tracings.findIndex((t) => t.id === id);
+  if (from === -1 || from === toIndex) return;
+  const [moved] = tracings.splice(from, 1);
+  tracings.splice(toIndex, 0, moved);
+  syncTracingOrder();
+  updateResultsTable();
+  saveAutosave();
 }
 
 function focusTracingName(id) {
@@ -1786,13 +1823,7 @@ function updateResultsTable() {
   let totalLengthM = 0;
   let hasArea = false;
   let hasLength = false;
-  // Sort is stable, so tracings on the same page keep their original
-  // (creation) order relative to each other — only the page grouping
-  // changes. `tracings` itself stays in insertion order for everything
-  // else that reads it (naming defaults, copy/export), only this render
-  // is page-ordered.
-  const displayTracings = tracings.slice().sort((a, b) => a.page - b.page);
-  displayTracings.forEach((t) => {
+  tracings.forEach((t) => {
     const tr = document.createElement("tr");
     tr.dataset.tracingId = String(t.id);
 
@@ -1802,7 +1833,25 @@ function updateResultsTable() {
     colorInput.value = t.color || DEFAULT_TRACING_COLOR;
     colorInput.title = "Tracing colour";
     colorInput.addEventListener("input", () => updateTracingColor(t.id, colorInput.value));
-    colorTd.appendChild(colorInput);
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "drag-handle";
+    handle.textContent = "⠿";
+    handle.title = "Drag to reorder (or use the arrow keys)";
+    handle.setAttribute("aria-label", `Reorder ${t.name}`);
+    handle.addEventListener("pointerdown", (evt) => startRowDrag(evt, tr, t.id));
+    handle.addEventListener("keydown", (evt) => {
+      if (evt.key !== "ArrowUp" && evt.key !== "ArrowDown") return;
+      evt.preventDefault();
+      const index = tracings.findIndex((x) => x.id === t.id);
+      const toIndex = index + (evt.key === "ArrowUp" ? -1 : 1);
+      if (toIndex < 0 || toIndex >= tracings.length) return;
+      moveTracing(t.id, toIndex);
+      const moved = resultsBody.querySelector(`tr[data-tracing-id="${t.id}"] .drag-handle`);
+      if (moved) moved.focus();
+    });
+    colorTd.className = "grip-cell";
+    colorTd.append(handle, colorInput);
 
     const nameTd = document.createElement("td");
     const nameInput = document.createElement("input");
@@ -1892,6 +1941,41 @@ function updateResultsTable() {
   }
   totalMeasurementEl.innerHTML = totalValues.map((v) => `<strong>${v}</strong>`).join("<br>");
   totalUnitEl.innerHTML = totalUnits.map((u) => `<strong>${u}</strong>`).join("<br>");
+}
+
+// Dragging a row by its handle: pointer events rather than HTML5
+// drag-and-drop, so it works the same with a mouse, a pen or a finger. The
+// row is moved live in the table as you drag; the real reorder (and save)
+// happens once, on release.
+function startRowDrag(evt, tr, id) {
+  if (evt.button !== 0) return;
+  evt.preventDefault();
+  tr.classList.add("dragging");
+
+  // Listened for on the window, not the handle: moving the row in the DOM
+  // would drop a pointer capture set on it, and with it the pointerup.
+  const onMove = (moveEvt) => {
+    const rows = Array.from(resultsBody.children).filter((r) => r !== tr);
+    const before = rows.find((r) => {
+      const box = r.getBoundingClientRect();
+      return moveEvt.clientY < box.top + box.height / 2;
+    });
+    if (before) {
+      if (tr.nextSibling !== before) resultsBody.insertBefore(tr, before);
+    } else if (resultsBody.lastChild !== tr) {
+      resultsBody.appendChild(tr);
+    }
+  };
+  const onEnd = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onEnd);
+    window.removeEventListener("pointercancel", onEnd);
+    tr.classList.remove("dragging");
+    moveTracing(id, Array.from(resultsBody.children).indexOf(tr));
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onEnd);
+  window.addEventListener("pointercancel", onEnd);
 }
 
 function removeTracing(id) {
