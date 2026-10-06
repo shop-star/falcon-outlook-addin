@@ -144,6 +144,11 @@ const zipPickerList = document.getElementById("zipPickerList");
 const currentFileInfo = document.getElementById("currentFileInfo");
 const currentFileNameEl = document.getElementById("currentFileNameEl");
 const changeFileBtn = document.getElementById("changeFileBtn");
+const renameFileBtn = document.getElementById("renameFileBtn");
+const renameFileForm = document.getElementById("renameFileForm");
+const renameFileInput = document.getElementById("renameFileInput");
+const renameFileConfirmBtn = document.getElementById("renameFileConfirmBtn");
+const renameFileCancelBtn = document.getElementById("renameFileCancelBtn");
 
 const scaleSectionEl = document.getElementById("scaleSection");
 const viewerSectionEl = document.getElementById("viewerSection");
@@ -670,6 +675,11 @@ function showZipPicker(entries) {
 // openRequestToken makes only the *latest* call's result ever get applied,
 // regardless of which one's async chain happens to finish last.
 let openRequestToken = 0;
+function showCurrentFileName() {
+  fileNameHeadingEl.textContent = `3. Add tracings — "${currentFileName}"`;
+  currentFileNameEl.textContent = currentFileName;
+}
+
 function openPdfFromBytes(fileName, bytes, opts) {
   const myToken = ++openRequestToken;
   setStatus(`Loading "${fileName}"…`);
@@ -692,14 +702,14 @@ function openPdfFromBytes(fileName, bytes, opts) {
           renderScale = 1.5;
           resetToolState();
           setScaleBtn.disabled = false;
-          fileNameHeadingEl.textContent = `3. Add tracings — "${fileName}"`;
           scaleSectionEl.hidden = false;
           viewerSectionEl.hidden = false;
           resultsPaneEl.hidden = false;
           downloadSectionEl.hidden = false;
           dropZone.hidden = true;
           currentFileInfo.hidden = false;
-          currentFileNameEl.textContent = fileName;
+          showCurrentFileName();
+          renameFileForm.hidden = true;
           populatePageSelect(pdf.numPages);
           renderPage();
           updateResultsTable();
@@ -1662,6 +1672,58 @@ function submitOnEnter(input, btn) {
 submitOnEnter(scaleRatioInput, scaleRatioConfirmBtn);
 submitOnEnter(calibLengthInput, calibConfirmBtn);
 submitOnEnter(tracingNameInput, tracingNameConfirmBtn);
+
+// ---- Renaming the open file -------------------------------------------------
+// The name is what downloads are called, and also half of the autosave key
+// (name + size) and what the remembered-open-file restore shows — so a
+// rename carries the saved progress over to the new key and re-remembers the
+// file under its new name, rather than just changing a label.
+renameFileBtn.addEventListener("click", () => {
+  renameFileInput.value = (currentFileName || "").replace(/\.pdf$/i, "");
+  renameFileForm.hidden = false;
+  renameFileInput.focus();
+  renameFileInput.select();
+});
+renameFileCancelBtn.addEventListener("click", () => {
+  renameFileForm.hidden = true;
+});
+renameFileInput.addEventListener("keydown", (evt) => {
+  if (evt.key === "Escape") renameFileForm.hidden = true;
+});
+submitOnEnter(renameFileInput, renameFileConfirmBtn);
+renameFileConfirmBtn.addEventListener("click", () => {
+  if (!currentPdf || !originalBytes) return;
+  // Characters Windows/macOS won't accept in a file name become spaces.
+  const base = renameFileInput.value
+    .replace(/\.pdf$/i, "")
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!base) {
+    setStatus("Enter a name for the file.", true);
+    renameFileInput.focus();
+    return;
+  }
+  const newName = `${base}.pdf`;
+  renameFileForm.hidden = true;
+  if (newName === currentFileName) return;
+
+  flushAutosave();
+  try {
+    const oldKey = autosaveKey(currentFileName, originalBytes.length);
+    const saved = localStorage.getItem(oldKey);
+    if (saved !== null) {
+      localStorage.setItem(autosaveKey(newName, originalBytes.length), saved);
+      localStorage.removeItem(oldKey);
+    }
+  } catch (e) {
+    // Storage unavailable — the rename still applies to this session.
+  }
+  currentFileName = newName;
+  showCurrentFileName();
+  persistCurrentFile(newName, originalBytes);
+  setStatus(`Renamed to "${newName}".`);
+});
 
 // If the scale is re-set on a page, existing tracings on that page keep
 // their drawn points but their area/length is recalculated against the new
