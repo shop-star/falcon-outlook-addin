@@ -111,12 +111,11 @@ the ribbon.
    email's subject, attachment names, and any links found in the body.
 2. Save the PDF attachment from Outlook's own UI (or download it from one
    of the listed links), then drag it into the app (or a zip containing
-   it). Once a plan is open, section 1 also holds the page navigation
-   (◀ ▶ and **Go to page**) and zoom controls, and shrinks down to its file
-   name,
-   a **Rename** button (the name is what your downloads are called, and
-   your saved progress follows the file to its new name), and an **Open a
-   different file** button.
+   it). Once a plan is open, section 1 shrinks down to its file name, a
+   **Rename** button (the name is what your downloads are called, and your
+   saved progress follows the file to its new name), an **Open a different
+   file** button, and the page navigation (◀ ▶ and **Go to page**) and
+   zoom controls.
 3. In the **Set scale** section, either click the two ends of a labelled
    dimension or the plan's scale bar and enter its real length and unit
    when prompted, or — if you already know it — just type the page's
