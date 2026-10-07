@@ -85,10 +85,14 @@ h2 { font-size: 14px; margin: 0 0 8px; color: var(--brand-dark); }
 #mainLayout.layout-sidebar #viewerSection { grid-column: 2; grid-row: 1 / span 5; }
 #mainLayout.layout-sidebar #resultsPane { grid-column: 3; grid-row: 1 / span 5; }
 
+/* Page navigation and zoom sit in section 1, under the open file's name. */
+.view-controls { margin: 10px 0 0; }
+.view-controls[hidden] { display: none; }
+
 /* In the narrow Columns-mode column, "Go to page" drops onto its own line
    inside the page-navigation group's border instead of overflowing it. */
-.layout-sidebar #toolsSection .toolbar-group-bordered { flex-wrap: wrap; }
-.layout-sidebar #toolsSection .page-jump {
+.layout-sidebar .view-controls .toolbar-group-bordered { flex-wrap: wrap; }
+.layout-sidebar .view-controls .page-jump {
   flex-basis: 100%;
   padding: 6px 0 0;
   border-left: none;

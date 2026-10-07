@@ -53,6 +53,24 @@
         <button id="renameFileCancelBtn">Cancel</button>
       </div>
     </div>
+    <!-- Page navigation and zoom: shown here, with the open file, once a
+         plan is loaded. -->
+    <div id="viewControls" class="toolbar view-controls" hidden>
+      <div class="toolbar-group toolbar-group-bordered">
+        <button id="prevPageBtn" title="Previous page">◀</button>
+        <span id="pageIndicator">Page 1 / 1</span>
+        <button id="nextPageBtn" title="Next page">▶</button>
+        <span class="page-jump">
+          <label for="resultsPageSelect">Go to page:</label>
+          <select id="resultsPageSelect"></select>
+        </span>
+      </div>
+      <div class="toolbar-group toolbar-group-bordered">
+        <button id="zoomOutBtn" title="Zoom out">−</button>
+        <span id="zoomIndicator">150%</span>
+        <button id="zoomInBtn" title="Zoom in">+</button>
+      </div>
+    </div>
     <div id="zipPicker" class="zip-picker" hidden>
       <p class="muted">That zip has more than one PDF — pick which one to open:</p>
       <div id="zipPickerList" class="zip-picker-list"></div>
@@ -117,24 +135,6 @@
 
   <section id="toolsSection" class="panel" hidden>
     <h2>3. Add tracings</h2>
-
-    <div class="toolbar">
-      <div class="toolbar-group toolbar-group-bordered">
-        <button id="prevPageBtn" title="Previous page">◀</button>
-        <span id="pageIndicator">Page 1 / 1</span>
-        <button id="nextPageBtn" title="Next page">▶</button>
-        <span class="page-jump">
-          <label for="resultsPageSelect">Go to page:</label>
-          <select id="resultsPageSelect"></select>
-        </span>
-      </div>
-      <div class="toolbar-group toolbar-group-bordered">
-        <button id="zoomOutBtn" title="Zoom out">−</button>
-        <span id="zoomIndicator">150%</span>
-        <button id="zoomInBtn" title="Zoom in">+</button>
-      </div>
-    </div>
-
     <div class="toolbar">
       <button id="traceBtn" disabled>Trace</button>
       <button id="undoPointBtn" hidden>Undo point</button>

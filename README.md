@@ -111,7 +111,9 @@ the ribbon.
    email's subject, attachment names, and any links found in the body.
 2. Save the PDF attachment from Outlook's own UI (or download it from one
    of the listed links), then drag it into the app (or a zip containing
-   it). Once a plan is open, section 1 shrinks down to just its file name,
+   it). Once a plan is open, section 1 also holds the page navigation
+   (◀ ▶ and **Go to page**) and zoom controls, and shrinks down to its file
+   name,
    a **Rename** button (the name is what your downloads are called, and
    your saved progress follows the file to its new name), and an **Open a
    different file** button.
@@ -166,8 +168,7 @@ the ribbon.
 
 If the numbered steps feel cramped stacked on top of each other, the
 **Layout** control at the top of the page switches to putting all four
-numbered sections (including **3. Add tracings**, which holds the page,
-zoom and trace controls) in a narrow column on the left, with the plan
+numbered sections in a narrow column on the left, with the plan
 itself filling the middle — the **Takeoff results** pane always stays on
 the right, at the same width, in either case. Pick
 whichever suits your screen; it's remembered next time you open the app.

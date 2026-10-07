@@ -148,6 +148,7 @@ const renameFileConfirmBtn = document.getElementById("renameFileConfirmBtn");
 const renameFileCancelBtn = document.getElementById("renameFileCancelBtn");
 
 const scaleSectionEl = document.getElementById("scaleSection");
+const viewControlsEl = document.getElementById("viewControls");
 const toolsSectionEl = document.getElementById("toolsSection");
 const viewerSectionEl = document.getElementById("viewerSection");
 const resultsPaneEl = document.getElementById("resultsPane");
@@ -695,6 +696,7 @@ function openPdfFromBytes(fileName, bytes, opts) {
           resetToolState();
           setScaleBtn.disabled = false;
           scaleSectionEl.hidden = false;
+          viewControlsEl.hidden = false;
           toolsSectionEl.hidden = false;
           viewerSectionEl.hidden = false;
           resultsPaneEl.hidden = false;
