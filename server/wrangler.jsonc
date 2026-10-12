@@ -4,6 +4,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "fergus-job",
+  "account_id": "3f7f939af57f5777b928190d7ddc3997",
   "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],

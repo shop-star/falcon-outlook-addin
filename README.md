@@ -154,15 +154,16 @@ One-time setup, in the Cloudflare dashboard (https://dash.cloudflare.com):
    **Oceania** as its location if offered. Put its **database ID** in
    `server/wrangler.jsonc` (`database_id`).
 2. **Workers & Pages** → note your **workers.dev subdomain** (Overview,
-   right-hand side) and your **Account ID**. The backend's URL will be
+   right-hand side) and your **Account ID**. Put the account ID in
+   `server/wrangler.jsonc` (`account_id`). The backend's URL is
    `https://fergus-job.<subdomain>.workers.dev`; put that in
-   `taskpane/config.js` (`backendUrl`).
+   `taskpane/config.js` (`backendUrl`). Ours is
+   https://fergus-job.martin-3f7.workers.dev.
 3. **My Profile → API Tokens → Create Token →** the **Edit Cloudflare
    Workers** template, then **+ Add more → Account · D1 · Edit**. Limit it
    to your account and create it.
-4. In GitHub (repo **Settings → Secrets and variables → Actions**): secret
-   `CLOUDFLARE_API_TOKEN` = that token; variable `CLOUDFLARE_ACCOUNT_ID` =
-   your Account ID.
+4. In GitHub (repo **Settings → Secrets and variables → Actions**), add the
+   secret `CLOUDFLARE_API_TOKEN` = that token.
 5. Push to `main` (or run **Actions → Deploy backend to Cloudflare → Run
    workflow**). It tests, creates the table, and deploys the Worker.
 6. **Workers & Pages → fergus-job → Settings → Variables and Secrets**, add:
@@ -173,7 +174,7 @@ One-time setup, in the Cloudflare dashboard (https://dash.cloudflare.com):
 | `ANTHROPIC_API_KEY` | Secret | Claude API key |
 | `FERGUS_GROUPS` | Text | Comma-separated business-unit groups, named exactly as in Fergus |
 
-Check https://fergus-job.&lt;subdomain&gt;.workers.dev/api/health shows
+Check https://fergus-job.martin-3f7.workers.dev/api/health shows
 `{"ok":true}`.
 
 The non-secret settings live in `server/wrangler.jsonc` under `vars`:

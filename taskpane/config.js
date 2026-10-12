@@ -6,7 +6,7 @@
  */
 window.FERGUS_ADDIN_CONFIG = {
   // Where server/ is deployed, without a trailing slash.
-  backendUrl: "https://YOUR-BACKEND-HOST",
+  backendUrl: "https://fergus-job.martin-3f7.workers.dev",
 
   // Entra ID app registration for the backend API. Leave clientId empty
   // only when testing against a backend running with AUTH_DISABLED=true.
