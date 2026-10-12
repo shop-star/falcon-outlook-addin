@@ -29,7 +29,7 @@ jobs:
         run: |
           # Only the add-in's static files: server/ is deployed separately
           # (it holds secrets and runs Node), and the Surface Takeoff app
-          # now lives in its own repo (shop-star/surface-takeoff).
+          # now lives in its own repo (shop-star/surface-takeoffs).
           mkdir -p _site/assets _site/taskpane _site/vendor/msal-browser
           cp manifest.xml commands.html commands.js _site/
           cp assets/*.png _site/assets/

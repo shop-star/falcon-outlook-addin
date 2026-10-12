@@ -13,7 +13,7 @@ an email:
 - **Surface Takeoff** — opens the Surface Takeoff plan-measuring app in a
   real browser window, with the email's subject, PDF/zip attachment names
   and links carried over. The app itself now lives in its own repo,
-  [shop-star/surface-takeoff](https://github.com/shop-star/surface-takeoff);
+  [shop-star/surface-takeoffs](https://github.com/shop-star/surface-takeoffs);
   this repo only holds the button (`commands.js`).
 
 What's where:

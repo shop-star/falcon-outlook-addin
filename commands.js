@@ -18,8 +18,8 @@
  * links found in the email body.
  */
 
-// The app itself lives in its own repo (shop-star/surface-takeoff).
-const APP_URL = "https://shop-star.github.io/surface-takeoff/app/index.html";
+// The app itself lives in its own repo (shop-star/surface-takeoffs).
+const APP_URL = "https://shop-star.github.io/surface-takeoffs/app/index.html";
 const MAX_ATTACHMENTS = 10;
 const MAX_LINKS = 10;
 
