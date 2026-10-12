@@ -6,7 +6,7 @@
  * approach tried (see the project history) — and the same class of problem
  * would only get worse trying to add OAuth popups for Dropbox/OneDrive
  * picking. So the actual plan viewer, tracing, and export now live in a
- * standalone browser app (see app/), which a real browser tab handles
+ * standalone browser app (shop-star/surface-takeoffs), which a real browser tab handles
  * natively with none of those restrictions.
  *
  * This file's only job is to open that app in a real browser window via
@@ -25,18 +25,10 @@ const MAX_LINKS = 10;
 
 Office.onReady();
 
-Office.actions.associate("openSurfaceTakeoffApp", (event) => {
+function openSurfaceTakeoffApp(event) {
   const item = Office.context.mailbox.item;
   if (!item) {
-    event.completed();
-    return;
-  }
-
-  if (!Office.context.requirements.isSetSupported("OpenBrowserWindowApi", "1.1")) {
-    showErrorNotification(
-      `This version of Outlook can't open the Surface Takeoff app directly — open ${APP_URL} in your browser instead.`
-    );
-    event.completed();
+    launchApp(APP_URL, event);
     return;
   }
 
@@ -44,14 +36,14 @@ Office.actions.associate("openSurfaceTakeoffApp", (event) => {
 
   item.body.getAsync(Office.CoercionType.Text, (result) => {
     const bodyText = result.status === Office.AsyncResultStatus.Succeeded ? result.value : "";
-    launchApp({
-      subject: item.subject || "",
-      attachments,
-      links: extractLinks(bodyText),
-    });
-    event.completed();
+    launchApp(appUrl({ subject: item.subject || "", attachments, links: extractLinks(bodyText) }), event);
   });
-});
+}
+
+// Registered both ways: some Outlook clients look the function up by name
+// on the global object, others only through Office.actions.associate.
+window.openSurfaceTakeoffApp = openSurfaceTakeoffApp;
+if (Office.actions?.associate) Office.actions.associate("openSurfaceTakeoffApp", openSurfaceTakeoffApp);
 
 // Only names, never bytes — the user saves the actual file from Outlook's
 // own attachment UI and drops it into the app themselves.
@@ -88,14 +80,50 @@ function extractLinks(text) {
   return unique;
 }
 
-function launchApp({ subject, attachments, links }) {
+function appUrl({ subject, attachments, links }) {
   const params = new URLSearchParams();
   if (subject) params.set("subject", subject);
   attachments.forEach((name) => params.append("attachment", name));
   links.forEach((url) => params.append("link", url));
+  return params.toString() ? `${APP_URL}?${params.toString()}` : APP_URL;
+}
 
-  const url = params.toString() ? `${APP_URL}?${params.toString()}` : APP_URL;
-  Office.context.ui.openBrowserWindow(url);
+// openBrowserWindow opens the system browser, which is what the app needs
+// (downloads work there). It's called without first checking
+// isSetSupported: Outlook doesn't always report OpenBrowserWindowApi even
+// where the method works, and that check left the button doing nothing in
+// Outlook on the web.
+function launchApp(url, event) {
+  try {
+    if (typeof Office.context.ui?.openBrowserWindow === "function") {
+      Office.context.ui.openBrowserWindow(url);
+      event.completed();
+      return;
+    }
+  } catch (err) {
+    // Fall through to the dialog.
+  }
+  openInDialog(url, event);
+}
+
+// Fallback: an Office dialog. In Outlook on the web that's a real browser
+// pop-up window; it may open on the add-in's own domain, which the app
+// shares (shop-star.github.io). The command stays "running" until the
+// window is closed, because completing it would close the window too.
+function openInDialog(url, event) {
+  try {
+    Office.context.ui.displayDialogAsync(url, { height: 90, width: 90, displayInIframe: false }, (result) => {
+      if (result.status !== Office.AsyncResultStatus.Succeeded) {
+        showErrorNotification(`Couldn't open Surface Takeoff (${result.error?.message || "unknown error"}). Open ${APP_URL} in your browser instead.`);
+        event.completed();
+        return;
+      }
+      result.value.addEventHandler(Office.EventType.DialogEventReceived, () => event.completed());
+    });
+  } catch (err) {
+    showErrorNotification(`Couldn't open Surface Takeoff. Open ${APP_URL} in your browser instead.`);
+    event.completed();
+  }
 }
 
 // A function command has no task pane or dialog of its own to show status
