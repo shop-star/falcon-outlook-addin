@@ -1,79 +1,41 @@
-# Surface Takeoff
+# City Timber Outlook add-in
 
-Two things live in this repo:
+An Outlook add-in that adds two buttons to the ribbon when you're reading
+an email:
 
-1. **A standalone browser app** (`app/`) — open a PDF plan (or a zip
-   containing one), click two points on a known measurement to calibrate
-   the scale, then trace each outline. Close a tracing as an **area** (its
-   m²) or leave it open and **measure its length** (its m) instead — both
-   kinds show up together in the results, with a running total for each.
-   Results update live, you can copy them straight into a spreadsheet or
-   quote, and download an annotated copy of the PDF with the tracings
-   burned onto the pages and the underlying data embedded in the file
-   itself (so reopening that downloaded copy restores your exact progress —
-   no account or server involved).
-2. **A minimal Outlook add-in** (`manifest.xml`, `commands.html`,
-   `commands.js`) — adds a "Surface Takeoff" button to the ribbon when
-   you're reading an email. Clicking it opens the app above in a real
-   browser window, with the open email's subject, PDF/zip attachment names,
-   and any links found in its body carried over so you have a head start.
+- **Create Fergus job** — opens a task pane that reads the email, has
+  Claude pull out the customer, contact, site address and job details
+  (including from forwarded emails and builders writing on a client's
+  behalf), finds matching customers and sites already in Fergus, and lets
+  you check and edit everything before creating the job. The original email
+  is attached to the job as a note and the email is tagged with the Outlook
+  category **Fergus job created**. Details below.
+- **Surface Takeoff** — opens the Surface Takeoff plan-measuring app in a
+  real browser window, with the email's subject, PDF/zip attachment names
+  and links carried over. The app itself now lives in its own repo,
+  [shop-star/surface-takeoffs](https://github.com/shop-star/surface-takeoffs);
+  this repo only holds the button (`commands.js`).
 
-Everything runs in your browser — a PDF is never uploaded anywhere. There's
-no subscription, no per-use cost, and no account to sign up for.
+What's where:
 
-## Why it's split this way
+| Path | What it is |
+| --- | --- |
+| `manifest.xml` | The add-in manifest (both buttons) |
+| `commands.html`, `commands.js` | Surface Takeoff button: opens the app in a browser window |
+| `taskpane/` | Create Fergus job task pane (static, hosted on GitHub Pages) |
+| `server/` | Backend for the task pane: Claude extraction + Fergus API calls. Holds the secrets; deploy it separately (Node 20+) |
+| `vendor/msal-browser/` | Microsoft's sign-in library, used by the task pane |
 
-Outlook add-ins run inside an embedded browser control, and that embedded
-control turned out to never reliably support triggering a file download —
-several different approaches were tried and each failed identically (or
-couldn't be confirmed working) across real Outlook clients. Doing the
-actual plan viewing/tracing/export in an ordinary browser tab sidesteps
-that entirely: downloads, drag-and-drop, and file pickers all just work.
-The add-in's only job now is to hand off to that tab with a head start —
-see `Office.context.ui.openBrowserWindow` in `commands.js`, an API
-Microsoft ships specifically for "things the sandboxed add-in view can't
-do, like downloading a file."
+## Hosting
 
-## Using the app on its own
+`.github/workflows/deploy-pages.yml` deploys the static add-in files
+(`manifest.xml`, `commands.*`, `assets/`, `taskpane/`, `vendor/`) to GitHub
+Pages on every push to `main`. `server/` is **not** part of that: it runs
+Node and holds API keys, so it needs its own host (see below). If you fork
+this, update every `https://shop-star.github.io/falcon-outlook-addin` URL
+in `manifest.xml`.
 
-Open `app/index.html` (or your hosted URL) in any browser. Drag a PDF plan
-onto the page, or a zip file containing one (if it has more than one PDF
-inside, you'll be asked which one to open) — no Outlook or email needed at
-all. Everything else works the same as described below.
-
-### Plans that arrive as images
-
-If a plan comes as photos or scans (JPG, PNG — also GIF, WebP or BMP)
-instead of a PDF, pick or drop **one or more images at once** (or a zip
-holding only images). The app combines them into a single new PDF, one
-image per page, with pages ordered by file name (so `page 2` comes before
-`page 10`). Phone photos are turned upright automatically. From then on
-it's an ordinary PDF: set the scale, trace, and download as usual. The
-downloaded copy carries your tracings like any other, and a refresh brings
-it straight back. Picking the same images again later also restores your
-saved progress.
-
-Set the scale on an image by **measuring a known dimension**. A typed
-scale like `1:100` only works if the image records its real scan
-resolution (e.g. a 300 DPI scan). The app tells you when it doesn't.
-
-## What you need to host the add-in
-
-- A Microsoft 365 work/school account.
-- Somewhere to host static files over HTTPS. **GitHub Pages** is the
-  easiest free option and is what's deployed here (see
-  `.github/workflows/deploy-pages.yml`), but any static HTTPS host works.
-
-## 1. Host the files
-
-The GitHub Actions workflow in this repo deploys everything needed —
-`manifest.xml`, `commands.html`, `commands.js`, `assets/`, `vendor/`, and
-the whole `app/` folder — to GitHub Pages on every push to `main`. If
-you're forking this for your own deployment, update every
-`https://shop-star.github.io/falcon-outlook-addin` URL in `manifest.xml`
-and `commands.js` (`APP_URL`) to your own base URL first.
-
-## 2. Sideload the add-in into Outlook (work/school account)
+## Sideload the add-in into Outlook (work/school account)
 
 **Outlook on the web** (works.outlook.com / outlook.office.com):
 
@@ -90,8 +52,8 @@ and `commands.js` (`APP_URL`) to your own base URL first.
 **Classic Outlook for Windows:** **File → Manage Add-ins** opens the same
 web dialog above, or use **Home → Get Add-ins → My add-ins**.
 
-Once added, open any email and you'll see a **Surface Takeoff** button in
-the ribbon.
+Once added, open any email and you'll see **Surface Takeoff** and
+**Create Fergus job** buttons in the ribbon.
 
 > **Note:** some organizations restrict end-users from sideloading custom
 > add-ins (a tenant admin setting). If "Add from file" is missing or
@@ -104,101 +66,163 @@ the ribbon.
 > client is too old, clicking the ribbon button shows an error banner
 > instead — open the app's URL directly in your browser as a fallback.
 
-## Using it
 
-1. Open the email with the plan attached, click **Surface Takeoff** in the
-   ribbon — the app opens in a new browser tab, pre-filled with that
-   email's subject, attachment names, and any links found in the body.
-2. Save the PDF attachment from Outlook's own UI (or download it from one
-   of the listed links), then drag it into the app (or a zip containing
-   it). Once a plan is open, section 1 shrinks down to its file name, a
-   **Rename** button (the name is what your downloads are called, and your
-   saved progress follows the file to its new name), an **Open a different
-   file** button, and the page navigation (◀ ▶ and **Go to page**) and
-   zoom controls.
-3. In the **Set scale** section, either click the two ends of a labelled
-   dimension or the plan's scale bar and enter its real length and unit
-   when prompted, or — if you already know it — just type the page's
-   printed scale (e.g. `1:100`) into the box below and click **Use this
-   scale**, or click one of the **1:50 / 1:100 / 1:200** preset buttons for
-   an instant one-click set. The typed-scale shortcut assumes the PDF's
-   page size matches the real sheet size (i.e. it wasn't resized on
-   export); if measurements come out wrong, use the click-and-measure
-   method instead.
-4. In **Add tracings**, click **Trace**, then click around an outline
-   point by point. When you're done, either:
-   - Click **Finish area** (needs at least 3 points) to close it as an
-     area — its m² is computed from the enclosed shape, or
-   - Click **Measure length** (needs at least 2 points) to leave it open
-     and just measure the total length of the lines you drew, without
-     closing it into a shape.
+## Create Fergus job
 
-   Either way, it's added straight to the **Takeoff results** pane with
-   the cursor already in its name box — type a name and press Enter (or
-   carry on and name it later). Each one gets a different colour, which
-   you can change from its swatch in the results pane. Repeat for each
-   tracing (and each page, if the plan has multiple floors — you'll need
-   to set the scale once per page). To fix up a tracing afterward, click
-   its outline/line (when you're not actively tracing or setting scale) to
-   select it, then drag its point handles to reshape it — its measurement
-   updates as you drag — or drag the circle on its label to reposition the
-   label itself (even away from the tracing, which draws a thin line back
-   to it so it's still clearly that tracing's label). Both a tracing's
-   drawing on the plan and its label always show its measurement (e.g.
-   "Bedroom — 16.59 m²" or "Wall run A — 4.70 m"), and you can change a
-   tracing's name or colour anytime directly in the results table.
-5. Read the running list and totals in the **Takeoff results** pane on the
-   right (it updates live as you trace, ordered by page, and also shows
-   each tracing's page and the scale that was set on it) — click anywhere
-   on a tracing's row to jump straight to its page in the viewer and
-   select it for editing, or use the **Go to page** dropdown to jump to
-   any page directly. Drag a row by its ⠿ handle to reorder the list (or
-   click the handle and use the arrow keys) — new tracings are added
-   after the others on their page, and **Copy results** and the PDF
-   summary page follow whatever order you set. Areas and lengths are
-   totalled separately (only
-   shown when you actually have one of that kind). Use **Copy results**
-   to paste a tab-separated list into Excel or your quote.
-6. The **Download** section is always there, no button to open it first —
-   pick which pages to include (just the current page, the whole
-   document, or only the pages with a tracing on them) and whether to
-   append a summary page listing every tracing and its measurement (on by
-   default), then click **Download**.
+### How it works
 
-If the numbered steps feel cramped stacked on top of each other, the
-**Layout** control at the top of the page switches to putting all four
-numbered sections in a narrow column on the left, with the plan
-itself filling the middle — the **Takeoff results** pane always stays on
-the right, at the same width, in either case. Pick
-whichever suits your screen; it's remembered next time you open the app.
+1. The task pane reads the open email with Office.js — subject, body as
+   plain text, sender, received time, attachment names and the email's
+   `internetMessageId` — and POSTs it to the backend (`/api/analyze`).
+   Attachment *contents* are never sent.
+2. The backend asks Claude to extract customer name, company, contact name,
+   phone, email, site address, a job title and description, and a
+   suggested group, each with a confidence (high / medium / low / none).
+   Claude reads the whole body, so a forwarded email or a builder writing
+   for their client still yields the real customer and site. It then
+   searches Fergus for existing customers (by email, phone, name and
+   company) and sites (by street address and postcode).
+3. The pane shows an editable form. An existing customer is preselected
+   only when it matched on email or phone, and an existing site only when
+   street and postcode both match; otherwise **New customer** / **New
+   site** is selected with the extracted details filled in. Fields Claude
+   inferred or guessed are flagged "check".
+4. **Create job in Fergus** (`/api/jobs`) creates the customer and site if
+   new, creates the job (`isDraft: false`), adds the email (from, date,
+   subject, attachment names, body, and the chosen group) as a job note,
+   and returns the job number and link. The pane then tags the email
+   **Fergus job created**.
+5. The backend records `internetMessageId → Fergus job` in
+   `DATA_DIR/actioned-emails.json`. Opening the pane on an email that's
+   already been actioned — by anyone, on any device — shows that job
+   instead of the form. If a create fails part-way (e.g. Fergus rate
+   limits the note), trying again reuses the customer, site and job already
+   created rather than duplicating them.
 
-Your scale and tracings are saved automatically as you work, to your
-browser's local storage for that exact file (by name and size), and the
-open file itself is also kept (in IndexedDB, which allows much more room
-than local storage) — so simply refreshing the page, or accidentally
-closing and reopening the tab, brings back exactly where you left off with
-no need to re-pick the file. That's inherently per-browser/per-device,
-unlike the old Outlook-item-storage approach — but the **downloaded** PDF
-also carries its own progress embedded in it (see above), so passing that
-file along (by email, OneDrive, wherever) is what carries your progress
-across devices or to someone else. **Clear all** wipes the saved
-tracing/scale progress for the current file (not the remembered-open-file
-part), so use it when you actually want to start over.
+Fergus errors are shown in plain words: a rejected token, validation
+messages from Fergus, and rate limits (a short `Retry-After` is retried
+automatically once; a longer one shows a countdown on the button and keeps
+the form as typed).
 
-## Limitations to know about
+### Not supported by the Fergus API (as far as we could verify)
 
-- This is a **manual trace** tool, not automatic detection — it won't
-  guess wall lines for you. That trade-off is deliberate: automatic
-  detection on real construction drawings (furniture, dimension lines,
-  hatching) is unreliable, and for quoting you want measurements you can
-  trust.
-- Multi-page plans need the scale set separately on each page (a ground
-  floor and first floor page are usually drawn at different points on the
-  sheet, so we don't assume they share a scale).
-- The add-in only ever passes along attachment *names* and email *links* —
-  never file bytes — so you still save/download the actual PDF yourself
-  and drop it into the app. There's no built-in Dropbox/OneDrive picker
-  (yet); links are just shown for a one-click open in your own browser,
-  where your existing login to that service applies normally.
-- If your organization has disabled add-in sideloading, you'll need your
-  Microsoft 365 admin to deploy the manifest centrally (see note above).
+- **Business-unit groups:** we found no endpoint for listing groups or
+  setting a job's group. The group list comes from `FERGUS_GROUPS`, Claude
+  suggests one, and the chosen group is written at the top of the job note
+  for whoever picks the job up to set in Fergus.
+- **Separate contacts:** a new customer's contact is created as the
+  customer's main contact, and a new site's contact is the same person as
+  its default contact. Nothing creates a standalone contact record.
+- **Job link:** the API returns the job's ID and number but not a web-app
+  URL. The link is built from `FERGUS_JOB_URL_TEMPLATE` — open one real job
+  in Fergus and check the template matches its URL.
+
+### 1. Register the add-in in Microsoft Entra ID
+
+The backend accepts requests only from people signed in to your Microsoft
+365 tenant. The task pane gets their token from Outlook itself (nested app
+authentication), so nobody types a password into the add-in.
+
+1. **Entra admin center → App registrations → New registration.** Name it
+   e.g. "Fergus job add-in", single tenant. Note the **Application (client)
+   ID** and **Directory (tenant) ID**.
+2. **Authentication → Add a platform → Single-page application**, redirect
+   URI `brk-multihub://shop-star.github.io` (the add-in's host).
+3. **Expose an API →** set the Application ID URI to `api://<client-id>`,
+   then **Add a scope** named `access_as_user` (who can consent: admins and
+   users).
+4. **API permissions → Add a permission → My APIs →** this app →
+   `access_as_user`, then **Grant admin consent**.
+5. Put the client and tenant IDs in `taskpane/config.js` and in the
+   backend's `ENTRA_CLIENT_ID` / `ENTRA_TENANT_ID`.
+
+Sign-in needs an Outlook that supports nested app authentication (current
+Outlook on the web, new Outlook for Windows, classic Outlook on a recent
+Microsoft 365 build, Outlook for Mac). Older clients show a message saying so.
+
+### 2. Run the backend
+
+```sh
+cd server
+npm ci
+cp .env.example .env   # then fill it in, or set the variables in your host
+npm start
+```
+
+| Variable | Required | Meaning |
+| --- | --- | --- |
+| `FERGUS_API_TOKEN` | yes | Fergus personal access token (Fergus → Settings → Personal Access Tokens) |
+| `ANTHROPIC_API_KEY` | yes | Claude API key |
+| `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID` | yes | From step 1 |
+| `FERGUS_GROUPS` | recommended | Comma-separated business-unit groups, named exactly as in Fergus |
+| `FERGUS_DEFAULT_JOB_TYPE` | no | `Quote` (default), `Estimate` or `Charge Up` |
+| `OWN_EMAIL_DOMAINS` | recommended | Our staff domains (e.g. `citytimber.co.nz`), so a forwarder is never taken for the customer |
+| `DATA_DIR` | no | Where `actioned-emails.json` lives (default `./data`). **Must survive restarts and redeploys** — on a container host, mount a volume here |
+| `ALLOWED_ORIGINS` | no | Origins allowed to call the API (default `https://shop-star.github.io`) |
+| `FERGUS_JOB_URL_TEMPLATE` | no | Job link, `{jobId}` / `{jobNo}` substituted (default `https://app.fergus.com/jobs/view/{jobId}` — verify) |
+| `ANTHROPIC_MODEL` | no | Default `claude-opus-5-5` |
+| `PORT` | no | Default `3000` |
+| `AUTH_DISABLED` | no | `true` skips sign-in. **Local testing only** |
+
+Any Node 20+ host with HTTPS and a persistent disk works (Azure App Service,
+Render, Fly.io, a small VM). Run a single instance: the idempotency record
+is a local file. Then set `backendUrl` in `taskpane/config.js` to its HTTPS
+URL and push to `main` to redeploy the task pane.
+
+### 3. Test it
+
+**Automated tests** (no network or keys needed — Fergus and Claude are
+faked):
+
+```sh
+cd server && npm test
+```
+
+**Backend against real Fergus and Claude, without Outlook.** In a
+throwaway terminal run the server with sign-in turned off, then send it the
+sample email in `server/samples/builder-email.json` (a builder asking for a
+decking quote for their client):
+
+```sh
+cd server
+AUTH_DISABLED=true FERGUS_API_TOKEN=… ANTHROPIC_API_KEY=… \
+  FERGUS_GROUPS="Decking,Framing,Joinery" npm start
+
+# in another terminal:
+curl -s localhost:3000/api/analyze -H 'Content-Type: application/json' \
+  -d @samples/builder-email.json
+```
+
+You should get `"status": "new"`, an `extraction` with customer **Aroha
+Ngata** (not the builder, Sam), phone `021 555 0142`, site **14 Kowhai
+Road, Mt Eden, Auckland 1024**, group **Decking** — plus any matching
+Fergus customers/sites under `candidates`. `/api/analyze` only reads from
+Fergus. To create a real job (which then exists in Fergus), POST to
+`/api/jobs` with the email plus the form fields, e.g.:
+
+```sh
+curl -s localhost:3000/api/jobs -H 'Content-Type: application/json' -d '{
+  "email": '"$(node -p 'JSON.stringify(require("./samples/builder-email.json").email)')"',
+  "jobType": "Quote", "group": "Decking",
+  "title": "TEST – decking 14 Kowhai Rd", "description": "Test job from the add-in README",
+  "customer": { "new": { "name": "Aroha Ngata", "contactName": "Aroha Ngata", "email": "aroha.ngata@example.com", "phone": "021 555 0142" } },
+  "site": { "new": { "address": { "address1": "14 Kowhai Road", "suburb": "Mt Eden", "city": "Auckland", "postcode": "1024" }, "contactName": "Aroha Ngata", "phone": "021 555 0142" } }
+}'
+```
+
+Run the same command again and you get `"status": "exists"` with the same
+job — no duplicate. Delete the test job, customer and site in Fergus
+afterwards, and delete `data/actioned-emails.json` if you want to re-run it.
+
+**In Outlook.** With the backend deployed and `taskpane/config.js` filled
+in, send yourself the sample (subject and body from
+`samples/builder-email.json`), open it, and click **Create Fergus job**.
+Check the form, create the job, and confirm the email gets the **Fergus job
+created** category. Close and reopen the pane: it should show the existing
+job instead of the form.
+
+> **Outlook category:** add-ins can only apply a category that already
+> exists in the mailbox's category list (creating one needs a much broader
+> permission than this add-in asks for). Each person creates **Fergus job
+> created** once — **Categorize → Manage categories → New** — or the pane
+> says it couldn't tag the email. The job is created either way.

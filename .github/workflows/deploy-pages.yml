@@ -27,19 +27,20 @@ jobs:
 
       - name: Stage site files
         run: |
-          mkdir -p _site/assets _site/app _site/vendor/pdfjs _site/vendor/pdf-lib _site/vendor/jszip
+          # Only the add-in's static files: server/ is deployed separately
+          # (it holds secrets and runs Node), and the Surface Takeoff app
+          # now lives in its own repo (shop-star/surface-takeoffs).
+          mkdir -p _site/assets _site/taskpane _site/vendor/msal-browser
           cp manifest.xml commands.html commands.js _site/
           cp assets/*.png _site/assets/
-          cp app/index.html app/app.css app/app.js _site/app/
-          cp vendor/pdfjs/*.js _site/vendor/pdfjs/
-          cp vendor/pdf-lib/*.js _site/vendor/pdf-lib/
-          cp vendor/jszip/*.js _site/vendor/jszip/
+          cp taskpane/fergus.html taskpane/fergus.css taskpane/fergus.js taskpane/config.js _site/taskpane/
+          cp vendor/msal-browser/* _site/vendor/msal-browser/
           # Outlook's own add-in cache (separate from normal HTTP caching)
           # can hang onto old JS/CSS well past a reload, so every deploy
           # gets a distinct query string on these references — forces a
           # fresh fetch instead of silently reusing a stale copy.
           sed -i "s/__CACHEBUST__/${GITHUB_SHA}/g" _site/commands.html _site/commands.js \
-            _site/app/index.html _site/app/app.js
+            _site/taskpane/fergus.html
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Create Fergus job</title>
+  <link rel="stylesheet" href="fergus.css?v=__CACHEBUST__" />
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <script src="../vendor/msal-browser/msal-browser.min.js?v=__CACHEBUST__"></script>
+  <script src="config.js?v=__CACHEBUST__"></script>
+  <script src="fergus.js?v=__CACHEBUST__"></script>
+</head>
+<body>
+  <main>
+    <h1>Create Fergus job</h1>
+
+    <section id="statusView" class="status" role="status" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="statusText">Reading this email…</p>
+    </section>
+
+    <section id="errorView" class="error-box" role="alert" hidden>
+      <p id="errorText"></p>
+      <div class="actions">
+        <button id="retryBtn" type="button">Try again</button>
+        <button id="signInBtn" type="button" class="primary" hidden>Sign in</button>
+      </div>
+    </section>
+
+    <section id="doneView" class="done" hidden>
+      <p id="doneHeading" class="done-heading"></p>
+      <p id="doneDetail" class="muted"></p>
+      <p><a id="jobLink" href="#" target="_blank" rel="noopener">Open in Fergus</a></p>
+      <p id="categoryNote" class="muted small" hidden></p>
+    </section>
+
+    <form id="jobForm" hidden novalidate>
+      <div id="warnings"></div>
+      <p id="claudeNotes" class="notes" hidden></p>
+
+      <fieldset>
+        <legend>Customer</legend>
+        <div id="customerChoices" class="choices"></div>
+        <div id="newCustomerFields" class="sub-fields">
+          <label>Customer name <span class="conf" data-for="customerName"></span>
+            <input name="customerName" autocomplete="off" />
+          </label>
+          <label>Company <span class="conf" data-for="company"></span>
+            <input name="company" autocomplete="off" />
+          </label>
+          <label>Contact name <span class="conf" data-for="contactName"></span>
+            <input name="contactName" autocomplete="off" />
+          </label>
+          <label>Email <span class="conf" data-for="email"></span>
+            <input name="email" type="email" autocomplete="off" />
+          </label>
+          <label>Phone <span class="conf" data-for="phone"></span>
+            <input name="phone" type="tel" autocomplete="off" />
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Site</legend>
+        <div id="siteChoices" class="choices"></div>
+        <div id="newSiteFields" class="sub-fields">
+          <p class="muted small">Site address <span class="conf" data-for="siteAddress"></span></p>
+          <label>Street address
+            <input name="address1" autocomplete="off" />
+          </label>
+          <label>Unit / building
+            <input name="address2" autocomplete="off" />
+          </label>
+          <div class="row">
+            <label>Suburb <input name="suburb" autocomplete="off" /></label>
+            <label>City <input name="city" autocomplete="off" /></label>
+          </div>
+          <div class="row">
+            <label>Region <input name="region" autocomplete="off" /></label>
+            <label>Postcode <input name="postcode" autocomplete="off" /></label>
+          </div>
+          <p class="muted small">The new site's contact is the customer contact above.</p>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Job</legend>
+        <div class="row">
+          <label>Job type
+            <select name="jobType"></select>
+          </label>
+          <label>Group <span class="conf" data-for="group"></span>
+            <select name="group"></select>
+          </label>
+        </div>
+        <label>Title <span class="conf" data-for="jobTitle"></span>
+          <input name="title" maxlength="255" autocomplete="off" />
+        </label>
+        <label>Description <span class="conf" data-for="jobDescription"></span>
+          <textarea name="description" rows="6"></textarea>
+        </label>
+        <p class="muted small">The original email (sender, date, subject and body) is added to the job as a note.</p>
+      </fieldset>
+
+      <p id="formError" class="field-error" role="alert" hidden></p>
+      <button id="createBtn" type="submit" class="primary wide">Create job in Fergus</button>
+    </form>
+  </main>
+</body>
+</html>
