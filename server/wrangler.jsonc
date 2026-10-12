@@ -24,7 +24,7 @@
       "binding": "DB",
       "database_name": "fergus-job",
       // From Cloudflare dashboard → Storage & Databases → D1 → fergus-job.
-      "database_id": "REPLACE-WITH-D1-DATABASE-ID",
+      "database_id": "cbad7075-615c-4f70-a397-016d0db2ff8e",
       "migrations_dir": "migrations"
     }
   ]
