@@ -1,0 +1,31 @@
+// Cloudflare Worker for the "Create Fergus job" task pane.
+// Secrets (FERGUS_API_TOKEN, ANTHROPIC_API_KEY) and FERGUS_GROUPS are set in
+// the Cloudflare dashboard, never here: keep_vars stops a deploy removing them.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fergus-job",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "keep_vars": true,
+  "observability": { "enabled": true },
+
+  "vars": {
+    "ENTRA_CLIENT_ID": "97a22ba4-8cd3-486f-88b2-6e7339a287ea",
+    "ENTRA_TENANT_ID": "6fcef592-bbb9-493f-9b5d-c39253026214",
+    "OWN_EMAIL_DOMAINS": "citytimber.co.nz",
+    "FERGUS_DEFAULT_JOB_TYPE": "Quote",
+    "ALLOWED_ORIGINS": "https://shop-star.github.io"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fergus-job",
+      // From Cloudflare dashboard → Storage & Databases → D1 → fergus-job.
+      "database_id": "REPLACE-WITH-D1-DATABASE-ID",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
