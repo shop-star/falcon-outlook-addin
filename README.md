@@ -1,7 +1,7 @@
-# City Timber Outlook add-in
+# Falcon Flooring Outlook add-in
 
-An Outlook add-in that adds two buttons to the ribbon when you're reading
-an email:
+An Outlook add-in that adds two buttons, under **Falcon Flooring** on the
+ribbon, when you're reading an email:
 
 - **Create Fergus job** — opens a task pane that reads the email, has
   Claude pull out the customer, contact, site address and job details
@@ -10,9 +10,11 @@ an email:
   you check and edit everything before creating the job. The original email
   is attached to the job as a note and the email is tagged with the Outlook
   category **Fergus job created**. Details below.
-- **Surface Takeoff** — opens the Surface Takeoff plan-measuring app in a
-  real browser window, with the email's subject, PDF/zip attachment names
-  and links carried over. The app itself now lives in its own repo,
+- **Surface Takeoff** — opens the Surface Takeoff plan-measuring app in
+  your browser, with the email's subject, PDF/zip attachment names and
+  links carried over. It uses Outlook's `openBrowserWindow` where that
+  works, falls back to a browser pop-up window (Outlook on the web), and
+  otherwise shows a banner with the app's address. The app itself now lives in its own repo,
   [shop-star/surface-takeoffs](https://github.com/shop-star/surface-takeoffs);
   this repo only holds the button (`commands.js`).
 
@@ -37,23 +39,24 @@ in `manifest.xml`.
 
 ## Sideload the add-in into Outlook (work/school account)
 
-**Outlook on the web** (works.outlook.com / outlook.office.com):
+Microsoft's **Get Add-ins** button now opens the Microsoft 365 app store,
+which has no way to add your own manifest. Use the direct link instead:
 
-1. Open any email, then in the ribbon go to **Get Add-ins** (or the "..."
-   menu → **Get Add-ins**).
-2. Choose **My add-ins** (left side), scroll to **Custom Addins**, and
-   click **Add a custom add-in → Add from file...**
-3. Select `manifest.xml`. Accept the warning about unverified/custom
-   add-ins.
+1. Open **Outlook on the web** (https://outlook.office.com) and stay signed in.
+2. In another tab of the same browser, open **https://aka.ms/olksideload**.
+   It brings up the **Add-ins for Outlook** dialog in Outlook.
+3. Choose **My add-ins**, scroll to **Custom Addins**, remove any older
+   copy of this add-in, then **Add a custom add-in → Add from file…** and
+   pick `manifest.xml` (download it from
+   https://shop-star.github.io/falcon-outlook-addin/manifest.xml).
 
-**New Outlook for Windows / Outlook on Mac:** same steps — **Get Add-ins**
-→ **My add-ins** → **Add a custom add-in** → **Add from file**.
+Add-ins added in Outlook on the web also reach the new Outlook for Windows
+and Outlook for Mac on the same account, usually within minutes; the
+classic desktop apps may need a restart (see the Mac note below).
 
-**Classic Outlook for Windows:** **File → Manage Add-ins** opens the same
-web dialog above, or use **Home → Get Add-ins → My add-ins**.
-
-Once added, open any email and you'll see **Surface Takeoff** and
-**Create Fergus job** buttons in the ribbon.
+Once added, open any email and you'll see **Falcon Flooring** on the ribbon
+with **Surface Takeoff** and **Create Fergus job** under it (in Outlook on
+the web this may sit under **Apps** or the **…** menu).
 
 > **Note:** some organizations restrict end-users from sideloading custom
 > add-ins (a tenant admin setting). If "Add from file" is missing or
@@ -61,10 +64,12 @@ Once added, open any email and you'll see **Surface Takeoff** and
 > the manifest for you centrally via the Microsoft 365 admin center
 > (Settings → Integrated apps → Upload custom apps).
 >
-> Also note: opening a real browser window from the add-in
-> (`OpenBrowserWindowApi`) needs a reasonably current Outlook build. If your
-> client is too old, clicking the ribbon button shows an error banner
-> instead — open the app's URL directly in your browser as a fallback.
+> **Outlook for Mac still showing an old button** (e.g. "Floor Area
+> Takeoff"): Mac Outlook caches add-ins. Quit Outlook, delete the folder
+> `~/Library/Containers/com.microsoft.Outlook/Data/Documents/wef` (Finder →
+> Go → Go to Folder…), and reopen Outlook. If the old one is still there,
+> remove it from **Get Add-ins → My add-ins** (or the ⋯ menu → Get
+> Add-ins) on the Mac.
 
 
 ## Create Fergus job

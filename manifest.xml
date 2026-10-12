@@ -9,10 +9,10 @@
   <!-- Unique identifier for this add-in. Do not change once you have sideloaded it,
        or Outlook will treat a later version as a brand new add-in. -->
   <Id>02e134bf-61e6-4889-b5f8-e8c87fc3ffd8</Id>
-  <Version>2.1.0.0</Version>
+  <Version>2.2.0.0</Version>
   <ProviderName>City Timber</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="City Timber" />
+  <DisplayName DefaultValue="Falcon Flooring" />
   <Description DefaultValue="Create a Fergus job from an email, or open the Surface Takeoff web app with its plan attachments and links." />
 
   <!-- Hosted via GitHub Pages at https://shop-star.github.io/falcon-outlook-addin -->
@@ -35,12 +35,12 @@
   </Requirements>
 
   <!-- Schema-required legacy fallback for very old clients without
-       VersionOverrides support; it has no button of its own to reach in
-       practice. The real buttons are under VersionOverrides below. -->
+       VersionOverrides support. The real buttons are under VersionOverrides
+       below. -->
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://shop-star.github.io/falcon-outlook-addin/commands.html" />
+        <SourceLocation DefaultValue="https://shop-star.github.io/falcon-outlook-addin/taskpane/fergus.html" />
         <RequestedHeight>250</RequestedHeight>
       </DesktopSettings>
     </Form>
@@ -67,7 +67,9 @@
 
           <ExtensionPoint xsi:type="MessageReadCommandSurface">
             <OfficeTab id="TabDefault">
-              <Group id="SurfaceTakeoffGroup">
+              <!-- One group, so Outlook on the web shows both buttons under
+                   "Falcon Flooring" rather than under the first group's label. -->
+              <Group id="FalconFlooringGroup">
                 <Label resid="GroupLabel" />
                 <Control xsi:type="Button" id="SurfaceTakeoffButton">
                   <Label resid="ButtonLabel" />
@@ -84,9 +86,6 @@
                     <FunctionName>openSurfaceTakeoffApp</FunctionName>
                   </Action>
                 </Control>
-              </Group>
-              <Group id="FergusGroup">
-                <Label resid="FergusGroupLabel" />
                 <Control xsi:type="Button" id="CreateFergusJobButton">
                   <Label resid="FergusButtonLabel" />
                   <Supertip>
@@ -120,13 +119,12 @@
         <bt:Url id="FergusTaskpane.Url" DefaultValue="https://shop-star.github.io/falcon-outlook-addin/taskpane/fergus.html" />
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GroupLabel" DefaultValue="Surface Takeoff" />
+        <bt:String id="GroupLabel" DefaultValue="Falcon Flooring" />
         <bt:String id="ButtonLabel" DefaultValue="Surface Takeoff" />
-        <bt:String id="FergusGroupLabel" DefaultValue="Fergus" />
         <bt:String id="FergusButtonLabel" DefaultValue="Create Fergus job" />
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="ButtonTooltip" DefaultValue="Open the Surface Takeoff app with this email's plan attachments and links ready to go." />
+        <bt:String id="ButtonTooltip" DefaultValue="Open the Surface Takeoff app in your browser, with this email's plan attachments and links ready to go." />
         <bt:String id="FergusButtonTooltip" DefaultValue="Turn this email into a Fergus job: check the customer, site and job details pulled from it, then create the job with the email attached as a note." />
       </bt:LongStrings>
     </Resources>
