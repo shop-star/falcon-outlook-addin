@@ -1,4 +1,4 @@
-/* Surface Takeoff — ribbon command (the whole add-in)
+/* Surface Takeoff — ribbon command
  *
  * This used to be a task pane plus a pop-up plan viewer, both running
  * inside Outlook's embedded dialog/task-pane WebView. That WebView turned
@@ -18,7 +18,8 @@
  * links found in the email body.
  */
 
-const APP_URL = "https://shop-star.github.io/falcon-outlook-addin/app/index.html";
+// The app itself lives in its own repo (shop-star/surface-takeoff).
+const APP_URL = "https://shop-star.github.io/surface-takeoff/app/index.html";
 const MAX_ATTACHMENTS = 10;
 const MAX_LINKS = 10;
 

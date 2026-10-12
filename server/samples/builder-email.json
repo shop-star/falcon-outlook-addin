@@ -1,0 +1,10 @@
+{
+  "email": {
+    "internetMessageId": "<sample-builder-0001@example.com>",
+    "subject": "FW: Quote please – deck at 14 Kowhai Rd",
+    "from": { "name": "Sam Builder", "address": "sam@builders.example.com" },
+    "receivedAt": "2026-10-12T21:15:00.000Z",
+    "bodyText": "Hi team,\n\nCould you please quote the decking for my client's job below. Delivery to site week of 2 November if possible.\n\nClient: Aroha Ngata\nMobile: 021 555 0142\nEmail: aroha.ngata@example.com\nSite: 14 Kowhai Road, Mt Eden, Auckland 1024\n\nAbout 40 m2 of 140x32 kwila decking, plus 90x45 H3.2 joists at 450 centres (plan attached) and stainless screws.\n\nCheers,\nSam Builder\nBuilders Example Ltd\n09 555 0199",
+    "attachments": [{ "name": "deck-plan.pdf", "size": 120000, "contentType": "application/pdf" }]
+  }
+}

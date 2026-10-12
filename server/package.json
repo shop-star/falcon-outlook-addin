@@ -1,0 +1,20 @@
+{
+  "name": "fergus-job-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backend for the Outlook add-in's \"Create Fergus job\" task pane: extracts job details from an email with Claude, matches and creates Fergus customers/sites/jobs.",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "jose": "^6.2.12"
+  }
+}
