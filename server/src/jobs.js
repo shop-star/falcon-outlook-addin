@@ -15,7 +15,6 @@ export class JobService {
     this.fergus = fergus;
     this.anthropic = anthropic;
     this.store = store;
-    this.inFlight = new Set();
   }
 
   options() {
@@ -73,14 +72,13 @@ export class JobService {
     const req = validateCreate(raw, this.options());
     const id = req.email.internetMessageId;
 
-    if (this.inFlight.has(id)) {
+    if (!(await this.store.acquire(id))) {
       throw new AppError(409, "IN_PROGRESS", "A Fergus job is already being created for this email. Wait a moment, then reopen the pane.");
     }
-    this.inFlight.add(id);
     try {
       return await this.createSteps(req, user);
     } finally {
-      this.inFlight.delete(id);
+      await this.store.release(id);
     }
   }
 

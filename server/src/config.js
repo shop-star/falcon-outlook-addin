@@ -1,8 +1,9 @@
-/* Configuration, read once from environment variables.
+/* Configuration, read from the Worker's environment variables.
  *
  * Secrets (FERGUS_API_TOKEN, ANTHROPIC_API_KEY) live only here, on the
  * server — the task pane never sees them. Everything else has a sensible
- * default so a local run needs nothing but those two plus AUTH_DISABLED=true.
+ * default so a local run needs nothing but those two plus AUTH_DISABLED=true
+ * (in .dev.vars).
  */
 
 function list(value, fallback = []) {
@@ -20,16 +21,16 @@ function bool(value) {
 // The job types Fergus accepts on POST /jobs.
 export const JOB_TYPES = ["Quote", "Estimate", "Charge Up"];
 
-export function loadConfig(env = process.env) {
+// `env` is the Worker's environment: vars and secrets from wrangler.jsonc
+// and the Cloudflare dashboard.
+export function loadConfig(env) {
   const defaultJobType = env.FERGUS_DEFAULT_JOB_TYPE || "Quote";
   if (!JOB_TYPES.includes(defaultJobType)) {
     throw new Error(`FERGUS_DEFAULT_JOB_TYPE must be one of: ${JOB_TYPES.join(", ")}`);
   }
 
   const config = {
-    port: Number(env.PORT) || 3000,
     allowedOrigins: list(env.ALLOWED_ORIGINS, ["https://shop-star.github.io"]),
-    dataDir: env.DATA_DIR || "./data",
     // Our own staff's email domains, so a forwarded email's forwarder isn't
     // mistaken for the customer.
     ownEmailDomains: list(env.OWN_EMAIL_DOMAINS),

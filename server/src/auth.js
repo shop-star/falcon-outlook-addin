@@ -21,8 +21,8 @@ export function createAuthenticator({ disabled, tenantId, clientId }) {
     issuer: [`https://login.microsoftonline.com/${tenantId}/v2.0`, `https://sts.windows.net/${tenantId}/`],
   };
 
-  return async function authenticate(req) {
-    const match = /^Bearer (.+)$/i.exec(req.headers.authorization || "");
+  return async function authenticate(request) {
+    const match = /^Bearer (.+)$/i.exec(request.headers.get("Authorization") || "");
     if (!match) {
       throw new AppError(401, "UNAUTHENTICATED", "Sign in to Microsoft 365 to use this.");
     }

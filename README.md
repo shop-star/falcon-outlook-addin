@@ -23,15 +23,15 @@ What's where:
 | `manifest.xml` | The add-in manifest (both buttons) |
 | `commands.html`, `commands.js` | Surface Takeoff button: opens the app in a browser window |
 | `taskpane/` | Create Fergus job task pane (static, hosted on GitHub Pages) |
-| `server/` | Backend for the task pane: Claude extraction + Fergus API calls. Holds the secrets; deploy it separately (Node 20+) |
+| `server/` | Backend for the task pane: a Cloudflare Worker doing the Claude extraction and Fergus API calls. Holds the secrets; deployed by `.github/workflows/deploy-worker.yml` |
 | `vendor/msal-browser/` | Microsoft's sign-in library, used by the task pane |
 
 ## Hosting
 
 `.github/workflows/deploy-pages.yml` deploys the static add-in files
 (`manifest.xml`, `commands.*`, `assets/`, `taskpane/`, `vendor/`) to GitHub
-Pages on every push to `main`. `server/` is **not** part of that: it runs
-Node and holds API keys, so it needs its own host (see below). If you fork
+Pages on every push to `main`. `server/` is **not** part of that: it holds
+API keys, so it runs as a Cloudflare Worker (see below). If you fork
 this, update every `https://shop-star.github.io/falcon-outlook-addin` URL
 in `manifest.xml`.
 
@@ -93,7 +93,7 @@ Once added, open any email and you'll see **Surface Takeoff** and
    and returns the job number and link. The pane then tags the email
    **Fergus job created**.
 5. The backend records `internetMessageId → Fergus job` in
-   `DATA_DIR/actioned-emails.json`. Opening the pane on an email that's
+   a Cloudflare D1 database. Opening the pane on an email that's
    already been actioned — by anyone, on any device — shows that job
    instead of the form. If a create fails part-way (e.g. Fergus rate
    limits the note), trying again reuses the customer, site and job already
@@ -140,34 +140,52 @@ Sign-in needs an Outlook that supports nested app authentication (current
 Outlook on the web, new Outlook for Windows, classic Outlook on a recent
 Microsoft 365 build, Outlook for Mac). Older clients show a message saying so.
 
-### 2. Run the backend
+### 2. Run the backend on Cloudflare
 
-```sh
-cd server
-npm ci
-cp .env.example .env   # then fill it in, or set the variables in your host
-npm start
-```
+The backend is a Cloudflare Worker named `fergus-job`. The free plan
+covers this volume. It keeps the record of actioned emails in a D1 database
+(`server/migrations/`). Cloudflare runs as many copies as it needs, and a
+lock in the database stops two people creating a job from the same email
+at once.
 
-| Variable | Required | Meaning |
+One-time setup, in the Cloudflare dashboard (https://dash.cloudflare.com):
+
+1. **Storage & Databases → D1 → Create database**, named `fergus-job`. Pick
+   **Oceania** as its location if offered. Put its **database ID** in
+   `server/wrangler.jsonc` (`database_id`).
+2. **Workers & Pages** → note your **workers.dev subdomain** (Overview,
+   right-hand side) and your **Account ID**. Put the account ID in
+   `server/wrangler.jsonc` (`account_id`). The backend's URL is
+   `https://fergus-job.<subdomain>.workers.dev`; put that in
+   `taskpane/config.js` (`backendUrl`). Ours is
+   https://fergus-job.martin-3f7.workers.dev.
+3. **My Profile → API Tokens → Create Token →** the **Edit Cloudflare
+   Workers** template, then **+ Add more → Account · D1 · Edit**. Limit it
+   to your account and create it.
+4. In GitHub (repo **Settings → Secrets and variables → Actions**), add the
+   secret `CLOUDFLARE_API_TOKEN` = that token.
+5. Push to `main` (or run **Actions → Deploy backend to Cloudflare → Run
+   workflow**). It tests, creates the table, and deploys the Worker.
+6. **Workers & Pages → fergus-job → Settings → Variables and Secrets**, add:
+
+| Name | Type | Value |
 | --- | --- | --- |
-| `FERGUS_API_TOKEN` | yes | Fergus personal access token (Fergus → Settings → Personal Access Tokens) |
-| `ANTHROPIC_API_KEY` | yes | Claude API key |
-| `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID` | yes | From step 1 |
-| `FERGUS_GROUPS` | recommended | Comma-separated business-unit groups, named exactly as in Fergus |
-| `FERGUS_DEFAULT_JOB_TYPE` | no | `Quote` (default), `Estimate` or `Charge Up` |
-| `OWN_EMAIL_DOMAINS` | recommended | Our staff domains (e.g. `citytimber.co.nz`), so a forwarder is never taken for the customer |
-| `DATA_DIR` | no | Where `actioned-emails.json` lives (default `./data`). **Must survive restarts and redeploys** — on a container host, mount a volume here |
-| `ALLOWED_ORIGINS` | no | Origins allowed to call the API (default `https://shop-star.github.io`) |
-| `FERGUS_JOB_URL_TEMPLATE` | no | Job link, `{jobId}` / `{jobNo}` substituted (default `https://app.fergus.com/jobs/view/{jobId}` — verify) |
-| `ANTHROPIC_MODEL` | no | Default `claude-opus-5-5` |
-| `PORT` | no | Default `3000` |
-| `AUTH_DISABLED` | no | `true` skips sign-in. **Local testing only** |
+| `FERGUS_API_TOKEN` | Secret | Fergus personal access token (Fergus → Settings → Personal Access Tokens) |
+| `ANTHROPIC_API_KEY` | Secret | Claude API key |
+| `FERGUS_GROUPS` | Text | Comma-separated business-unit groups, named exactly as in Fergus |
 
-Any Node 20+ host with HTTPS and a persistent disk works (Azure App Service,
-Render, Fly.io, a small VM). Run a single instance: the idempotency record
-is a local file. Then set `backendUrl` in `taskpane/config.js` to its HTTPS
-URL and push to `main` to redeploy the task pane.
+Check https://fergus-job.martin-3f7.workers.dev/api/health shows
+`{"ok":true}`.
+
+The non-secret settings live in `server/wrangler.jsonc` under `vars`:
+`ENTRA_CLIENT_ID` / `ENTRA_TENANT_ID` (from step 1 above),
+`OWN_EMAIL_DOMAINS` (our staff domains, so a forwarder is never taken for
+the customer), `FERGUS_DEFAULT_JOB_TYPE` (`Quote`, `Estimate` or `Charge
+Up`) and `ALLOWED_ORIGINS`. Optional extras, set in the dashboard:
+`FERGUS_JOB_URL_TEMPLATE` (job link, `{jobId}` / `{jobNo}` substituted;
+default `https://app.fergus.com/jobs/view/{jobId}`, so check it against a
+real job) and `ANTHROPIC_MODEL` (default `claude-opus-5-5`). Settings
+added in the dashboard survive deploys (`keep_vars`).
 
 ### 3. Test it
 
@@ -178,32 +196,35 @@ faked):
 cd server && npm test
 ```
 
-**Backend against real Fergus and Claude, without Outlook.** In a
-throwaway terminal run the server with sign-in turned off, then send it the
-sample email in `server/samples/builder-email.json` (a builder asking for a
-decking quote for their client):
+**Backend against real Fergus and Claude, without Outlook.** Run the
+Worker locally with sign-in turned off (`npm run dev` runs Cloudflare's
+real Workers runtime, with a local copy of the database), then send it the
+sample email in `server/samples/builder-email.json`, a builder asking for a
+decking quote for their client:
 
 ```sh
 cd server
-AUTH_DISABLED=true FERGUS_API_TOKEN=… ANTHROPIC_API_KEY=… \
-  FERGUS_GROUPS="Decking,Framing,Joinery" npm start
+npm ci
+cp .dev.vars.example .dev.vars        # fill in the Fergus token, Claude key and groups
+npx wrangler d1 migrations apply fergus-job --local
+npm run dev
 
 # in another terminal:
-curl -s localhost:3000/api/analyze -H 'Content-Type: application/json' \
+curl -s localhost:8787/api/analyze -H 'Content-Type: application/json' \
   -d @samples/builder-email.json
 ```
 
 You should get `"status": "new"`, an `extraction` with customer **Aroha
 Ngata** (not the builder, Sam), phone `021 555 0142`, site **14 Kowhai
-Road, Mt Eden, Auckland 1024**, group **Decking** — plus any matching
+Road, Mt Eden, Auckland 1024**, a suggested group, and any matching
 Fergus customers/sites under `candidates`. `/api/analyze` only reads from
 Fergus. To create a real job (which then exists in Fergus), POST to
 `/api/jobs` with the email plus the form fields, e.g.:
 
 ```sh
-curl -s localhost:3000/api/jobs -H 'Content-Type: application/json' -d '{
+curl -s localhost:8787/api/jobs -H 'Content-Type: application/json' -d '{
   "email": '"$(node -p 'JSON.stringify(require("./samples/builder-email.json").email)')"',
-  "jobType": "Quote", "group": "Decking",
+  "jobType": "Quote", "group": "",
   "title": "TEST – decking 14 Kowhai Rd", "description": "Test job from the add-in README",
   "customer": { "new": { "name": "Aroha Ngata", "contactName": "Aroha Ngata", "email": "aroha.ngata@example.com", "phone": "021 555 0142" } },
   "site": { "new": { "address": { "address1": "14 Kowhai Road", "suburb": "Mt Eden", "city": "Auckland", "postcode": "1024" }, "contactName": "Aroha Ngata", "phone": "021 555 0142" } }
@@ -211,8 +232,9 @@ curl -s localhost:3000/api/jobs -H 'Content-Type: application/json' -d '{
 ```
 
 Run the same command again and you get `"status": "exists"` with the same
-job — no duplicate. Delete the test job, customer and site in Fergus
-afterwards, and delete `data/actioned-emails.json` if you want to re-run it.
+job, with no duplicate. Delete the test job, customer and site in Fergus
+afterwards, and delete `server/.wrangler/` to reset the local database.
+`.dev.vars` is git-ignored; never commit it.
 
 **In Outlook.** With the backend deployed and `taskpane/config.js` filled
 in, send yourself the sample (subject and body from

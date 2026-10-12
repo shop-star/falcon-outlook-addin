@@ -14,7 +14,9 @@ import { AppError } from "./errors.js";
 const MAX_AUTO_RETRY_WAIT_S = 5;
 
 export class FergusClient {
-  constructor({ apiToken, baseUrl, fetchImpl = globalThis.fetch, sleep = defaultSleep }) {
+  // The default wraps fetch rather than storing it: Workers reject a fetch
+  // called as a method of another object ("Illegal invocation").
+  constructor({ apiToken, baseUrl, fetchImpl = (...args) => fetch(...args), sleep = defaultSleep }) {
     this.apiToken = apiToken;
     this.baseUrl = baseUrl;
     this.fetch = fetchImpl;

@@ -1,14 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../src/config.js";
 import { extractionSchema } from "../src/extract.js";
 import { FergusClient, fergusError, parseRetryAfter, toFergusContact } from "../src/fergus.js";
 import { JobService } from "../src/jobs.js";
-import { createServer } from "../src/server.js";
 import { JobStore } from "../src/store.js";
+import { createHandler } from "../src/worker.js";
+import { testD1 } from "./d1.js";
 import { fakeAnthropic, fakeFergus, sampleEmail, sampleExtraction } from "./fakes.js";
 
 const env = {
@@ -19,11 +17,11 @@ const env = {
 };
 
 async function setup({ fergusData, extraction = sampleExtraction } = {}) {
-  const config = { ...loadConfig(env), dataDir: await mkdtemp(path.join(tmpdir(), "fergus-test-")) };
+  const config = loadConfig(env);
   const fergusFake = fakeFergus(fergusData);
   const anthropic = fakeAnthropic(extraction);
   const fergus = new FergusClient({ apiToken: "test-token", baseUrl: "https://fergus.test", fetchImpl: fergusFake.fetchImpl, sleep: async () => {} });
-  const store = new JobStore(config.dataDir);
+  const store = new JobStore(testD1());
   const service = new JobService({ config, fergus, anthropic, store });
   return { config, service, store, fergusFake, anthropic };
 }
@@ -141,6 +139,21 @@ test("a short 429 is retried automatically", async () => {
   assert.equal(fergusFake.calls.filter((c) => c.path === "/jobs").length, 2);
 });
 
+test("default fetch is called unbound, as Cloudflare Workers require", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = function () {
+    // Workers throw "Illegal invocation" when fetch is called as a method.
+    if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+    return Promise.resolve(new Response(JSON.stringify({ data: [] }), { status: 200 }));
+  };
+  try {
+    const fergus = new FergusClient({ apiToken: "t", baseUrl: "https://fergus.test" });
+    assert.deepEqual(await fergus.searchSites("x"), []);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("Fergus errors become clear messages", () => {
   assert.equal(fergusError(401, {}, "creating the job").code, "FERGUS_AUTH");
   const v = fergusError(422, { errors: { siteId: ["is required"] } }, "creating the job");
@@ -183,46 +196,72 @@ test("extraction schema follows structured-output rules", () => {
   assert.deepEqual(extractionSchema(["Decking"]).properties.group.properties.value.enum, ["Decking", ""]);
 });
 
+test("two creates for the same email can't run at once", async () => {
+  const { service, store, fergusFake } = await setup();
+  // Another Worker instance is mid-way through creating this job.
+  assert.equal(await store.acquire(sampleEmail.internetMessageId), true);
+
+  await assert.rejects(service.create(newJobRequest(), {}), (err) => err.code === "IN_PROGRESS" && err.status === 409);
+  assert.equal(fergusFake.calls.length, 0);
+
+  await store.release(sampleEmail.internetMessageId);
+  assert.equal((await service.create(newJobRequest(), {})).status, "created");
+});
+
+test("a lock left by a crashed instance expires", async () => {
+  let now = 1_000_000;
+  const store = new JobStore(testD1(), () => now);
+  assert.equal(await store.acquire("<m@x>"), true);
+  assert.equal(await store.acquire("<m@x>"), false);
+  now += 3 * 60 * 1000;
+  assert.equal(await store.acquire("<m@x>"), true);
+  // The lock's placeholder row doesn't read as a record.
+  assert.equal(await store.get("<m@x>"), null);
+});
+
 test("HTTP: CORS, auth and error bodies", async () => {
   const { config, service } = await setup();
-  const authenticate = async (req) => {
-    if (req.headers.authorization !== "Bearer good") {
-      const { AppError } = await import("../src/errors.js");
-      throw new AppError(401, "UNAUTHENTICATED", "Sign in.");
-    }
+  const { AppError } = await import("../src/errors.js");
+  const authenticate = async (request) => {
+    if (request.headers.get("Authorization") !== "Bearer good") throw new AppError(401, "UNAUTHENTICATED", "Sign in.");
     return { name: "Pat" };
   };
-  const server = createServer({ config, service, authenticate });
-  await new Promise((r) => server.listen(0, r));
-  const base = `http://127.0.0.1:${server.address().port}`;
-  try {
-    const pre = await fetch(`${base}/api/analyze`, { method: "OPTIONS", headers: { Origin: "https://shop-star.github.io" } });
-    assert.equal(pre.status, 204);
-    assert.equal(pre.headers.get("access-control-allow-origin"), "https://shop-star.github.io");
+  const handle = createHandler(() => ({ config, service, authenticate }));
+  const call = (path, init = {}) => handle(new Request(`https://worker.test${path}`, init), {});
 
-    const evil = await fetch(`${base}/api/analyze`, { method: "OPTIONS", headers: { Origin: "https://evil.example" } });
-    assert.equal(evil.headers.get("access-control-allow-origin"), null);
+  const pre = await call("/api/analyze", { method: "OPTIONS", headers: { Origin: "https://shop-star.github.io" } });
+  assert.equal(pre.status, 204);
+  assert.equal(pre.headers.get("access-control-allow-origin"), "https://shop-star.github.io");
 
-    const noAuth = await fetch(`${base}/api/analyze`, { method: "POST", body: "{}" });
-    assert.equal(noAuth.status, 401);
-    assert.equal((await noAuth.json()).error.code, "UNAUTHENTICATED");
+  const evil = await call("/api/analyze", { method: "OPTIONS", headers: { Origin: "https://evil.example" } });
+  assert.equal(evil.headers.get("access-control-allow-origin"), null);
 
-    const ok = await fetch(`${base}/api/analyze`, {
-      method: "POST",
-      headers: { Authorization: "Bearer good", "Content-Type": "application/json" },
-      body: JSON.stringify({ email: sampleEmail }),
-    });
-    assert.equal(ok.status, 200);
-    assert.equal((await ok.json()).status, "new");
+  assert.equal((await call("/api/health")).status, 200);
 
-    const bad = await fetch(`${base}/api/jobs`, {
-      method: "POST",
-      headers: { Authorization: "Bearer good" },
-      body: JSON.stringify({ email: sampleEmail, jobType: "Nope" }),
-    });
-    assert.equal(bad.status, 400);
-    assert.equal((await bad.json()).error.code, "BAD_REQUEST");
-  } finally {
-    server.close();
-  }
+  const noAuth = await call("/api/analyze", { method: "POST", body: "{}" });
+  assert.equal(noAuth.status, 401);
+  assert.equal((await noAuth.json()).error.code, "UNAUTHENTICATED");
+
+  const ok = await call("/api/analyze", {
+    method: "POST",
+    headers: { Authorization: "Bearer good", "Content-Type": "application/json" },
+    body: JSON.stringify({ email: sampleEmail }),
+  });
+  assert.equal(ok.status, 200);
+  assert.equal((await ok.json()).status, "new");
+
+  const bad = await call("/api/jobs", {
+    method: "POST",
+    headers: { Authorization: "Bearer good" },
+    body: JSON.stringify({ email: sampleEmail, jobType: "Nope" }),
+  });
+  assert.equal(bad.status, 400);
+  assert.equal((await bad.json()).error.code, "BAD_REQUEST");
+});
+
+test("HTTP: missing settings give a clear error", async () => {
+  const handle = createHandler((env) => loadConfig(env));
+  const res = await handle(new Request("https://worker.test/api/health"), {});
+  assert.equal(res.status, 500);
+  assert.equal((await res.json()).error.code, "MISCONFIGURED");
 });

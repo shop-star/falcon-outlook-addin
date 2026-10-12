@@ -1,0 +1,10 @@
+# For `npm run dev` (local Worker). Copy to .dev.vars — it's git-ignored.
+# In production these are set in the Cloudflare dashboard instead.
+FERGUS_API_TOKEN=          # Fergus → Settings → Personal Access Tokens
+ANTHROPIC_API_KEY=         # console.anthropic.com → API keys
+FERGUS_GROUPS=             # comma-separated, exactly as named in Fergus
+AUTH_DISABLED=true         # local testing ONLY — skips Microsoft sign-in
+
+# Optional
+# FERGUS_JOB_URL_TEMPLATE=https://app.fergus.com/jobs/view/{jobId}
+# ANTHROPIC_MODEL=claude-opus-5-5
