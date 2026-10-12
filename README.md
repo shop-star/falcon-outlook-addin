@@ -164,10 +164,20 @@ npm start
 | `PORT` | no | Default `3000` |
 | `AUTH_DISABLED` | no | `true` skips sign-in. **Local testing only** |
 
-Any Node 20+ host with HTTPS and a persistent disk works (Azure App Service,
-Render, Fly.io, a small VM). Run a single instance: the idempotency record
-is a local file. Then set `backendUrl` in `taskpane/config.js` to its HTTPS
-URL and push to `main` to redeploy the task pane.
+Any Node 20+ host with HTTPS and a persistent disk works. Run a single
+instance: the idempotency record is a local file. Then set `backendUrl` in
+`taskpane/config.js` to its HTTPS URL and push to `main` to redeploy the
+task pane.
+
+**Azure App Service** (what we use): a Linux web app on Node 22 LTS, Basic
+B1 plan or above (Free sleeps and can't keep "Always on"), one instance,
+`DATA_DIR=/home/data` (`/home` is the app's persistent storage), health
+check path `/api/health`. `.github/workflows/deploy-server.yml` deploys
+`server/` on every push to `main` that touches it, once the repository has
+the variable `AZURE_WEBAPP_NAME` and the secret
+`AZURE_WEBAPP_PUBLISH_PROFILE` (the app's downloaded publish profile; turn
+on **Configuration → General settings → SCM Basic Auth Publishing
+Credentials** first or the download is disabled).
 
 ### 3. Test it
 
