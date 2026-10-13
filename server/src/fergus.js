@@ -117,18 +117,19 @@ export class FergusClient {
 
   // ----- Calendar -----
 
-  // An all-day event that isn't tied to a job, for a public holiday. `date`
-  // is "YYYY-MM-DD". NOTE: unlike the calls above, this body hasn't been
-  // checked against a real Fergus account yet — the first holiday sync's
-  // result (or Fergus's validation message) will tell.
-  async createCalendarEvent({ title, date }) {
+  // An event not tied to a job, e.g. a public holiday. `userId` is the
+  // Fergus user it belongs to and `linkedUserIds` everyone else it shows for;
+  // `startTime`/`endTime` are ISO instants.
+  async createCalendarEvent({ userId, linkedUserIds = [], eventType, title, description, startTime, endTime }) {
     const body = {
-      eventType: "OTHER",
-      title,
-      description: "New Zealand public holiday (added automatically).",
-      startDate: date,
-      endDate: date,
-      isAllDay: true,
+      userId,
+      linkedUserIds,
+      startTime,
+      endTime,
+      eventTitle: title,
+      eventType,
+      description,
+      frequency: "NEVER",
     };
     const res = await this.request("POST", "/calendarEvents", { body, action: "adding a public holiday to the calendar" });
     const event = unwrap(res);

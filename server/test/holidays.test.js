@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { FergusClient } from "../src/fergus.js";
-import { HolidaySync, nzToday } from "../src/holiday-sync.js";
+import { HolidaySync, nzTimeToIso, nzToday } from "../src/holiday-sync.js";
 import { holidaysBetween, nzPublicHolidays } from "../src/holidays.js";
 import { testD1 } from "./d1.js";
 import { fakeFergus } from "./fakes.js";
 
 const dates = (holidays) => Object.fromEntries(holidays.map((h) => [h.name, h.date]));
+const national = (year) => nzPublicHolidays(year).filter((h) => !h.region);
 
 test("2027 national holidays, checked against the government's list", () => {
-  assert.deepEqual(dates(nzPublicHolidays(2027)), {
+  assert.deepEqual(dates(national(2027)), {
     "New Year's Day": "2027-01-01",
     "Day after New Year's Day": "2027-01-04", // Sat 2nd → Mon
     "Waitangi Day": "2027-02-08", // Sat → Mon
@@ -25,35 +26,50 @@ test("2027 national holidays, checked against the government's list", () => {
 });
 
 test("Christmas on a Sunday is taken on the Tuesday", () => {
-  const d = dates(nzPublicHolidays(2022));
+  const d = dates(national(2022));
   assert.equal(d["Christmas Day"], "2022-12-27");
   assert.equal(d["Boxing Day"], "2022-12-26");
   assert.equal(d["Good Friday"], "2022-04-15");
 });
 
-test("regional anniversary days", () => {
-  assert.equal(dates(nzPublicHolidays(2027, "auckland"))["Auckland Anniversary Day"], "2027-02-01");
-  assert.equal(dates(nzPublicHolidays(2026, "wellington"))["Wellington Anniversary Day"], "2026-01-19");
-  assert.equal(dates(nzPublicHolidays(2026, "canterbury"))["Canterbury Anniversary Day (Show Day)"], "2026-11-13");
-  assert.equal(dates(nzPublicHolidays(2026, "hawkes-bay"))["Hawke's Bay Anniversary Day"], "2026-10-23");
-  assert.equal(nzPublicHolidays(2026).length, 11);
-  assert.throws(() => nzPublicHolidays(2026, "atlantis"), /HOLIDAY_REGION/);
+test("every regional anniversary day is included", () => {
+  const regional = nzPublicHolidays(2026).filter((h) => h.region);
+  assert.equal(regional.length, 12);
+  const d = dates(regional);
+  assert.equal(d["Wellington Anniversary Day"], "2026-01-19");
+  assert.equal(d["Auckland Anniversary Day"], "2026-01-26");
+  assert.equal(d["Otago Anniversary Day"], "2026-03-23");
+  assert.equal(d["Southland Anniversary Day"], "2026-04-07");
+  assert.equal(d["South Canterbury Anniversary Day"], "2026-09-28");
+  assert.equal(d["Hawke's Bay Anniversary Day"], "2026-10-23");
+  assert.equal(d["Marlborough Anniversary Day"], "2026-11-02");
+  assert.equal(d["Canterbury Anniversary Day (Show Day)"], "2026-11-13");
+  assert.equal(d["Westland Anniversary Day"], "2026-11-30");
+  assert.equal(nzPublicHolidays(2027).find((h) => h.name === "Auckland Anniversary Day").date, "2027-02-01");
 });
 
 test("holidaysBetween spans a year boundary", () => {
   const names = holidaysBetween("2026-12-01", "2027-01-31").map((h) => `${h.date} ${h.name}`);
-  assert.deepEqual(names, ["2026-12-25 Christmas Day", "2026-12-28 Boxing Day", "2027-01-01 New Year's Day", "2027-01-04 Day after New Year's Day"]);
+  assert.deepEqual(names, [
+    "2026-12-25 Christmas Day",
+    "2026-12-28 Boxing Day",
+    "2027-01-01 New Year's Day",
+    "2027-01-04 Day after New Year's Day",
+    "2027-01-25 Wellington Anniversary Day",
+  ]);
 });
 
-test("nzToday uses New Zealand's date, not UTC's", () => {
+test("New Zealand dates and times, across daylight saving", () => {
   assert.equal(nzToday(new Date("2026-10-13T20:00:00Z")), "2026-10-14");
+  assert.equal(nzTimeToIso("2026-12-25", 7), "2026-12-24T18:00:00.000Z"); // NZDT, +13
+  assert.equal(nzTimeToIso("2027-06-25", 17), "2027-06-25T05:00:00.000Z"); // NZST, +12
 });
 
 function syncSetup(now, failures) {
   const fake = fakeFergus({ failures });
   const fergus = new FergusClient({ apiToken: "t", baseUrl: "https://fergus.test", fetchImpl: fake.fetchImpl, sleep: async () => {} });
   const db = testD1();
-  return { fake, db, sync: (at = now) => new HolidaySync({ fergus, db, region: "auckland", now: () => at }).run() };
+  return { fake, db, sync: (at = now) => new HolidaySync({ fergus, db, userIds: [11, 12, 13], eventType: "OTHER", now: () => at }).run() };
 }
 
 test("sync adds the next year's holidays once, then only new ones", async () => {
@@ -62,20 +78,29 @@ test("sync adds the next year's holidays once, then only new ones", async () => 
   const first = await sync();
   assert.equal(first.from, "2026-10-13");
   assert.equal(first.to, "2027-10-13");
-  assert.equal(first.created[0].date, "2026-10-26"); // Labour Day 2026
-  assert.equal(first.created.at(-1).date, "2027-06-25"); // Matariki; Labour Day 2027 is the 25th, out of range
-  assert.equal(first.created.length, 12);
-  const event = fake.calls.find((c) => c.path === "/calendarEvents").body;
-  assert.equal(event.title, "Labour Day");
-  assert.equal(event.startDate, "2026-10-26");
-  assert.equal(event.isAllDay, true);
+  assert.deepEqual(first.created.slice(0, 3).map((h) => h.date), ["2026-10-23", "2026-10-26", "2026-11-02"]);
+  assert.equal(first.created.at(-1).name, "South Canterbury Anniversary Day"); // 2027-09-27
+  assert.equal(first.created.length, 23); // 11 national + 12 regional
+  const [hawkesBay, labourDay] = fake.calls.filter((c) => c.path === "/calendarEvents").map((c) => c.body);
+  assert.deepEqual(labourDay, {
+    userId: 11,
+    linkedUserIds: [12, 13],
+    startTime: "2026-10-25T18:00:00.000Z",
+    endTime: "2026-10-26T04:00:00.000Z",
+    eventTitle: "Labour Day",
+    eventType: "OTHER",
+    description: "New Zealand public holiday. Added automatically.",
+    frequency: "NEVER",
+  });
+  assert.equal(hawkesBay.eventTitle, "Hawke's Bay Anniversary Day");
+  assert.match(hawkesBay.description, /public holiday in Hawke's Bay only/);
 
   const again = await sync();
   assert.equal(again.created.length, 0);
 
   const nextMonth = await sync(new Date("2026-11-01T19:00:00Z"));
-  assert.deepEqual(nextMonth.created.map((h) => h.name), ["Labour Day"]); // 2027's
-  assert.equal(fake.calls.filter((c) => c.path === "/calendarEvents").length, 13);
+  assert.deepEqual(nextMonth.created.map((h) => h.name), ["Hawke's Bay Anniversary Day", "Labour Day", "Marlborough Anniversary Day"]); // 2027's
+  assert.equal(fake.calls.filter((c) => c.path === "/calendarEvents").length, 26);
 });
 
 test("a Fergus failure stops the run and is retried next time", async () => {
@@ -83,9 +108,15 @@ test("a Fergus failure stops the run and is retried next time", async () => {
     "POST /calendarEvents": [null, { status: 422, body: { message: "eventType is invalid" } }],
   });
 
-  await assert.rejects(sync(), /Christmas Day.*eventType is invalid/);
+  await assert.rejects(sync(), /Labour Day.*eventType is invalid/);
   const retry = await sync();
-  assert.equal(retry.created[0].name, "Christmas Day");
-  assert.equal(retry.skipped.length, 1); // Labour Day, added by the first run
-  assert.equal(fake.calls.filter((c) => c.path === "/calendarEvents").length, 13);
+  assert.equal(retry.created[0].name, "Labour Day");
+  assert.equal(retry.skipped.length, 1); // Hawke's Bay, added by the first run
+  assert.equal(fake.calls.filter((c) => c.path === "/calendarEvents").length, 24);
+});
+
+test("the sync refuses to run without a Fergus user", async () => {
+  const fergus = new FergusClient({ apiToken: "t", baseUrl: "https://fergus.test", fetchImpl: fakeFergus().fetchImpl });
+  const sync = new HolidaySync({ fergus, db: testD1(), userIds: [], eventType: "OTHER" });
+  await assert.rejects(sync.run(), /FERGUS_HOLIDAY_USER_IDS/);
 });

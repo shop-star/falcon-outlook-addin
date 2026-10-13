@@ -262,25 +262,43 @@ calendar a year ahead. A Cloudflare cron trigger (`triggers` in
 which is early morning on the 2nd in New Zealand.
 
 - **Which holidays:** the national ones (New Year, Waitangi, Easter,
-  ANZAC, King's Birthday, Matariki, Labour Day, Christmas, Boxing Day), on
-  the day each is *observed* (a weekend holiday moves to the Monday or
-  Tuesday). They're worked out in `server/src/holidays.js` from the
-  Holidays Act rules, so no outside service is involved. Matariki's dates
-  are set in law up to 2052.
-- **Anniversary day:** set `HOLIDAY_REGION` in `server/wrangler.jsonc`
-  (e.g. `auckland`, `wellington`, `canterbury`) to add that region's
-  anniversary day. Empty means national holidays only.
+  ANZAC, King's Birthday, Matariki, Labour Day, Christmas, Boxing Day)
+  **and every region's anniversary day** (Wellington, Auckland, Canterbury,
+  Otago and the rest). A regional one's description says which region it
+  applies to. Each is entered on the day it's *observed* (a weekend holiday
+  moves to the Monday or Tuesday). They're worked out in
+  `server/src/holidays.js` from the Holidays Act rules, so no outside
+  service is involved. Matariki's dates are set in law up to 2052.
+- **How they look in Fergus:** a non-job event from 7am to 5pm New Zealand
+  time, titled with the holiday's name, on the calendars of the users in
+  `FERGUS_HOLIDAY_USER_IDS`.
 - **No duplicates:** each holiday added is recorded in the D1 table
-  `holiday_events`, so the first run adds about twelve events and later
+  `holiday_events`, so the first run adds about two dozen events and later
   runs add only what's come into the twelve-month window.
 - **If Fergus refuses an event,** the run stops, logs the error (Workers &
   Pages → fergus-job → Logs), and that holiday is tried again next month.
 
-**Check it the first time.** The calendar-event call (`POST
-/calendarEvents`, in `createCalendarEvent` in `server/src/fergus.js`) has
-not yet been tried against a real Fergus account, unlike the job calls. To
-run the sync now rather than waiting for the 1st, run the Worker locally
-against real Fergus with a cron test route, then trigger it:
+### Set it up
+
+In **Workers & Pages → fergus-job → Settings → Variables and Secrets**, add:
+
+| Name | Type | Value |
+| --- | --- | --- |
+| `FERGUS_HOLIDAY_USER_IDS` | Text | Comma-separated Fergus user IDs. The first owns each event, the rest are linked so it shows on their calendars too. Until this is set the sync logs an error and adds nothing. |
+| `FERGUS_HOLIDAY_EVENT_TYPE` | Text | Optional. The `eventType` for a non-job event; default `OTHER`. |
+
+The request follows Fergus's `POST /calendarEvents` example (`userId`,
+`linkedUserIds`, `startTime`, `endTime`, `eventTitle`, `eventType`,
+`description`, `frequency: "NEVER"`), but two details are still
+unchecked: that the path is `/calendarEvents`, and which `eventType`
+Fergus accepts for an event that isn't a job (the example only shows
+`JOB_PHASE`). The first run will say if either is wrong.
+
+### Test it now
+
+To run the sync now rather than waiting for the 1st, run the Worker
+locally against real Fergus (with `FERGUS_HOLIDAY_USER_IDS` in
+`.dev.vars`) and trigger the cron:
 
 ```sh
 cd server
@@ -290,8 +308,7 @@ npx wrangler dev --test-scheduled
 curl "localhost:8787/__scheduled?cron=0+19+1+*+*"
 ```
 
-This creates real events in Fergus. If Fergus rejects the body, its
-validation message appears in the `wrangler dev` output; adjust the field
-names in `createCalendarEvent` to match. A local run records holidays in
-the local database only, so delete the test events in Fergus before the
+This creates real events in Fergus. If Fergus rejects one, its message
+appears in the `wrangler dev` output. A local run records holidays in the
+local database only, so delete the test events in Fergus before the
 deployed Worker's first run adds them again.

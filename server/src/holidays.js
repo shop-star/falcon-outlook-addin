@@ -4,7 +4,8 @@
  *
  * Dates are the days the holiday is *observed* — Waitangi Day on a Saturday
  * is taken on the Monday, Christmas on a Sunday on the Tuesday, and so on.
- * Each holiday is { date: "YYYY-MM-DD", name }.
+ * Each holiday is { date: "YYYY-MM-DD", name, region }, where region is
+ * empty for a national holiday and names where an anniversary day applies.
  */
 
 // Matariki moves each year; its dates are fixed in law up to 2052 (Te Kāhui
@@ -19,31 +20,30 @@ const MATARIKI = {
   2052: "06-21",
 };
 
-// Regional anniversary days, as the government observes them. Keys are what
-// HOLIDAY_REGION accepts.
-const ANNIVERSARIES = {
-  auckland: { name: "Auckland Anniversary Day", date: (y) => mondayNearest(day(y, 1, 29)) },
-  northland: { name: "Auckland Anniversary Day", date: (y) => mondayNearest(day(y, 1, 29)) },
-  wellington: { name: "Wellington Anniversary Day", date: (y) => mondayNearest(day(y, 1, 22)) },
-  nelson: { name: "Nelson Anniversary Day", date: (y) => mondayNearest(day(y, 2, 1)) },
-  taranaki: { name: "Taranaki Anniversary Day", date: (y) => nthWeekday(y, 3, MON, 2) },
-  otago: {
+// Regional anniversary days, as the government observes them
+// (employment.govt.nz). Auckland's is also Northland's.
+const ANNIVERSARIES = [
+  { name: "Auckland Anniversary Day", region: "Auckland and Northland", date: (y) => mondayNearest(day(y, 1, 29)) },
+  { name: "Wellington Anniversary Day", region: "Wellington", date: (y) => mondayNearest(day(y, 1, 22)) },
+  { name: "Nelson Anniversary Day", region: "Nelson", date: (y) => mondayNearest(day(y, 2, 1)) },
+  { name: "Taranaki Anniversary Day", region: "Taranaki", date: (y) => nthWeekday(y, 3, MON, 2) },
+  {
     name: "Otago Anniversary Day",
+    region: "Otago",
     // Moves to the Tuesday when it would land on Easter Monday.
     date: (y) => {
       const d = mondayNearest(day(y, 3, 23));
       return sameDay(d, addDays(easterSunday(y), 1)) ? addDays(d, 1) : d;
     },
   },
-  southland: { name: "Southland Anniversary Day", date: (y) => addDays(easterSunday(y), 2) },
-  "hawkes-bay": { name: "Hawke's Bay Anniversary Day", date: (y) => addDays(labourDay(y), -3) },
-  marlborough: { name: "Marlborough Anniversary Day", date: (y) => addDays(labourDay(y), 7) },
-  canterbury: { name: "Canterbury Anniversary Day (Show Day)", date: (y) => addDays(nthWeekday(y, 11, TUE, 1), 10) },
-  "chatham-islands": { name: "Chatham Islands Anniversary Day", date: (y) => mondayNearest(day(y, 11, 30)) },
-  westland: { name: "Westland Anniversary Day", date: (y) => mondayNearest(day(y, 12, 1)) },
-};
-
-export const HOLIDAY_REGIONS = Object.keys(ANNIVERSARIES);
+  { name: "Southland Anniversary Day", region: "Southland", date: (y) => addDays(easterSunday(y), 2) },
+  { name: "South Canterbury Anniversary Day", region: "South Canterbury", date: (y) => nthWeekday(y, 9, MON, 4) },
+  { name: "Hawke's Bay Anniversary Day", region: "Hawke's Bay", date: (y) => addDays(labourDay(y), -3) },
+  { name: "Marlborough Anniversary Day", region: "Marlborough", date: (y) => addDays(labourDay(y), 7) },
+  { name: "Canterbury Anniversary Day (Show Day)", region: "Canterbury", date: (y) => addDays(nthWeekday(y, 11, TUE, 1), 10) },
+  { name: "Chatham Islands Anniversary Day", region: "Chatham Islands", date: (y) => mondayNearest(day(y, 11, 30)) },
+  { name: "Westland Anniversary Day", region: "Westland", date: (y) => mondayNearest(day(y, 12, 1)) },
+];
 
 const SUN = 0;
 const MON = 1;
@@ -51,13 +51,9 @@ const TUE = 2;
 const FRI = 5;
 const SAT = 6;
 
-// Every public holiday observed in `year`, in date order. `region` adds that
-// region's anniversary day; leave it empty for the national holidays only.
-export function nzPublicHolidays(year, region = "") {
-  if (region && !ANNIVERSARIES[region]) {
-    throw new Error(`Unknown HOLIDAY_REGION "${region}". Use one of: ${HOLIDAY_REGIONS.join(", ")}`);
-  }
-
+// Every public holiday observed in `year`, national and regional, in date
+// order.
+export function nzPublicHolidays(year) {
   const easter = easterSunday(year);
   const [newYear, dayAfterNewYear] = mondayisePair(day(year, 1, 1));
   const [christmas, boxingDay] = mondayisePair(day(year, 12, 25));
@@ -78,22 +74,21 @@ export function nzPublicHolidays(year, region = "") {
   } else {
     console.warn(`Matariki's date for ${year} isn't set in law yet; it's been left out.`);
   }
-  if (region) {
-    const anniversary = ANNIVERSARIES[region];
-    holidays.push({ date: anniversary.date(year), name: anniversary.name });
+  for (const anniversary of ANNIVERSARIES) {
+    holidays.push({ date: anniversary.date(year), name: anniversary.name, region: anniversary.region });
   }
 
   return holidays
-    .map((h) => ({ date: isoDate(h.date), name: h.name }))
+    .map((h) => ({ date: isoDate(h.date), name: h.name, region: h.region || "" }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // Holidays observed from `from` to `to` inclusive, both "YYYY-MM-DD".
-export function holidaysBetween(from, to, region = "") {
+export function holidaysBetween(from, to) {
   const firstYear = Number(from.slice(0, 4));
   const lastYear = Number(to.slice(0, 4));
   const all = [];
-  for (let year = firstYear; year <= lastYear; year++) all.push(...nzPublicHolidays(year, region));
+  for (let year = firstYear; year <= lastYear; year++) all.push(...nzPublicHolidays(year));
   return all.filter((h) => h.date >= from && h.date <= to);
 }
 

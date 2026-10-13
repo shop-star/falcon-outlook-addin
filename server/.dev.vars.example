@@ -3,6 +3,7 @@
 FERGUS_API_TOKEN=          # Fergus → Settings → Personal Access Tokens
 ANTHROPIC_API_KEY=         # console.anthropic.com → API keys
 FERGUS_GROUPS=             # comma-separated, exactly as named in Fergus
+FERGUS_HOLIDAY_USER_IDS=   # public-holiday sync: Fergus user IDs, comma-separated
 AUTH_DISABLED=true         # local testing ONLY — skips Microsoft sign-in
 
 # Optional
