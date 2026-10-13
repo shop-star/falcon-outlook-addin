@@ -22,9 +22,7 @@
 
   // Monthly public-holiday sync (src/holiday-sync.js): 19:00 UTC on the 1st,
   // which is 7–8am on the 2nd in New Zealand.
-  // The second entry is a one-off run (13 Oct, 7:05pm NZ); remove it once
-  // that's happened.
-  "triggers": { "crons": ["0 19 1 * *", "5 6 13 10 *"] },
+  "triggers": { "crons": ["0 19 1 * *"] },
 
   "d1_databases": [
     {
