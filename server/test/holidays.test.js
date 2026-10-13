@@ -119,7 +119,7 @@ test("each scheduled run's outcome shows at GET /api/holidays", async () => {
   const fergus = new FergusClient({ apiToken: "t", baseUrl: "https://fergus.test", fetchImpl: fake.fetchImpl, sleep: async () => {} });
   const env = { DB: testD1() };
   const scheduled = createScheduled(() => ({ fergus }));
-  const handle = createHandler(() => ({ config: { allowedOrigins: [] } }));
+  const handle = createHandler(() => ({ config: { allowedOrigins: [] }, fergus }));
   const status = async () => (await handle(new Request("https://worker.test/api/holidays"), env)).json();
 
   const error = console.error;
@@ -145,4 +145,18 @@ test("each scheduled run's outcome shows at GET /api/holidays", async () => {
   assert.equal(body.runs[0].ok, true);
   assert.equal(body.runs[0].created.length, body.added.length);
   assert.equal(body.runs[1].ok, false);
+
+  // Run from a browser: everything's already added, so nothing new.
+  console.log = () => {};
+  try {
+    const res = await handle(new Request("https://worker.test/api/holidays/run"), env);
+    assert.equal(res.status, 200);
+    const run = await res.json();
+    assert.equal(run.ok, true);
+    assert.deepEqual(run.created, []);
+    assert.equal(run.skipped, body.added.length);
+  } finally {
+    console.log = log;
+  }
+  assert.equal((await status()).runs.length, 3);
 });

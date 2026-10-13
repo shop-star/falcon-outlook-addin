@@ -280,6 +280,10 @@ which is early morning on the 2nd in New Zealand.
 - **Each run's outcome** (what was added, or Fergus's error) is shown at
   https://fergus-job.martin-3f7.workers.dev/api/holidays, along with every
   holiday added so far.
+- **To run it now,** open
+  https://fergus-job.martin-3f7.workers.dev/api/holidays/run in a browser.
+  It shows what was added, or Fergus's error. Running it again only adds
+  holidays not already added.
 
 There's nothing to set up beyond the Worker itself: merging to `main`
 deploys the cron trigger and creates the `holiday_events` table.

@@ -3,7 +3,8 @@
  *   GET  /api/health    – liveness check, no auth
  *   POST /api/analyze   – { email } → extraction + match candidates, or the existing job
  *   POST /api/jobs      – { email, customer, site, jobType, group, title, description } → the job
- *   GET  /api/holidays  – recent public-holiday sync runs and the holidays added, no auth
+ *   GET  /api/holidays      – recent public-holiday sync runs and the holidays added, no auth
+ *   GET  /api/holidays/run  – run the public-holiday sync now and show the result, no auth
  *
  * It also runs on a monthly cron trigger (wrangler.jsonc) to keep New
  * Zealand public holidays on the Fergus calendar a year ahead
@@ -79,6 +80,15 @@ export function createHandler(getApp) {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
       if (request.method === "GET" && url.pathname === "/api/health") return json(200, { ok: true }, headers);
       if (request.method === "GET" && url.pathname === "/api/holidays") return json(200, await holidayStatus(env.DB), headers);
+      // A GET so it can be run from a browser. No sign-in: a run only adds
+      // holidays not already added, so running it again does no harm.
+      if (request.method === "GET" && url.pathname === "/api/holidays/run") {
+        try {
+          return json(200, await syncHolidays(() => app.fergus, env.DB), headers);
+        } catch (err) {
+          return json(502, { ok: false, error: err.message, details: err.details }, headers);
+        }
+      }
 
       const handler = routes[`${request.method} ${url.pathname}`];
       if (!handler) throw new AppError(404, "NOT_FOUND", "Not found.");
@@ -114,18 +124,25 @@ async function readJson(request) {
 
 export function createScheduled(getApp) {
   return async function scheduled(controller, env) {
-    try {
-      const app = getApp(env);
-      const result = await new HolidaySync({ fergus: app.fergus, db: env.DB }).run();
-      const added = result.created.map((h) => `${h.date} ${h.name}`).join("; ") || "nothing new";
-      console.log(`Public holidays ${result.from} to ${result.to}: added ${added}.`);
-      await recordRun(env.DB, true, { ...result, skipped: result.skipped.length });
-    } catch (err) {
-      console.error(err);
-      await recordRun(env.DB, false, { error: err.message, details: err.details });
-      throw err;
-    }
+    await syncHolidays(() => getApp(env).fergus, env.DB);
   };
+}
+
+// Runs the sync and records the outcome for GET /api/holidays, including a
+// failure to set up the Fergus client.
+async function syncHolidays(getFergus, db) {
+  try {
+    const result = await new HolidaySync({ fergus: getFergus(), db }).run();
+    const added = result.created.map((h) => `${h.date} ${h.name}`).join("; ") || "nothing new";
+    console.log(`Public holidays ${result.from} to ${result.to}: added ${added}.`);
+    const summary = { ok: true, ...result, skipped: result.skipped.length };
+    await recordRun(db, true, summary);
+    return summary;
+  } catch (err) {
+    console.error(err);
+    await recordRun(db, false, { error: err.message, details: err.details });
+    throw err;
+  }
 }
 
 export default { fetch: createHandler(setup), scheduled: createScheduled(setup) };
