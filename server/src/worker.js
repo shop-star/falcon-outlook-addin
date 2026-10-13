@@ -3,6 +3,7 @@
  *   GET  /api/health    – liveness check, no auth
  *   POST /api/analyze   – { email } → extraction + match candidates, or the existing job
  *   POST /api/jobs      – { email, customer, site, jobType, group, title, description } → the job
+ *   GET  /api/holidays  – recent public-holiday sync runs and the holidays added, no auth
  *
  * It also runs on a monthly cron trigger (wrangler.jsonc) to keep New
  * Zealand public holidays on the Fergus calendar a year ahead
@@ -17,7 +18,7 @@ import { createAuthenticator } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { AppError } from "./errors.js";
 import { FergusClient } from "./fergus.js";
-import { HolidaySync } from "./holiday-sync.js";
+import { HolidaySync, holidayStatus, recordRun } from "./holiday-sync.js";
 import { JobService } from "./jobs.js";
 import { JobStore } from "./store.js";
 
@@ -77,6 +78,7 @@ export function createHandler(getApp) {
     try {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
       if (request.method === "GET" && url.pathname === "/api/health") return json(200, { ok: true }, headers);
+      if (request.method === "GET" && url.pathname === "/api/holidays") return json(200, await holidayStatus(env.DB), headers);
 
       const handler = routes[`${request.method} ${url.pathname}`];
       if (!handler) throw new AppError(404, "NOT_FOUND", "Not found.");
@@ -112,11 +114,17 @@ async function readJson(request) {
 
 export function createScheduled(getApp) {
   return async function scheduled(controller, env) {
-    const app = getApp(env);
-    const sync = new HolidaySync({ fergus: app.fergus, db: env.DB });
-    const result = await sync.run();
-    const added = result.created.map((h) => `${h.date} ${h.name}`).join("; ") || "nothing new";
-    console.log(`Public holidays ${result.from} to ${result.to}: added ${added}.`);
+    try {
+      const app = getApp(env);
+      const result = await new HolidaySync({ fergus: app.fergus, db: env.DB }).run();
+      const added = result.created.map((h) => `${h.date} ${h.name}`).join("; ") || "nothing new";
+      console.log(`Public holidays ${result.from} to ${result.to}: added ${added}.`);
+      await recordRun(env.DB, true, { ...result, skipped: result.skipped.length });
+    } catch (err) {
+      console.error(err);
+      await recordRun(env.DB, false, { error: err.message, details: err.details });
+      throw err;
+    }
   };
 }
 

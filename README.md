@@ -275,8 +275,11 @@ which is early morning on the 2nd in New Zealand.
 - **No duplicates:** each holiday added is recorded in the D1 table
   `holiday_events`, so the first run adds about two dozen events and later
   runs add only what's come into the twelve-month window.
-- **If Fergus refuses an event,** the run stops, logs the error (Workers &
-  Pages → fergus-job → Logs), and that holiday is tried again next month.
+- **If Fergus refuses an event,** the run stops and that holiday is tried
+  again next month.
+- **Each run's outcome** (what was added, or Fergus's error) is shown at
+  https://fergus-job.martin-3f7.workers.dev/api/holidays, along with every
+  holiday added so far.
 
 There's nothing to set up beyond the Worker itself: merging to `main`
 deploys the cron trigger and creates the `holiday_events` table.

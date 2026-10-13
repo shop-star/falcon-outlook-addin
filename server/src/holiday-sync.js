@@ -87,3 +87,17 @@ export function nzTimeToIso(date, hour) {
   const offset = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour) - asUtc;
   return new Date(asUtc - offset).toISOString();
 }
+
+// Kept in D1 so a run's outcome is visible at GET /api/holidays.
+export async function recordRun(db, ok, result) {
+  await db.prepare("INSERT INTO holiday_sync_runs (ok, result) VALUES (?, ?)").bind(ok ? 1 : 0, JSON.stringify(result)).run();
+}
+
+export async function holidayStatus(db) {
+  const runs = await db.prepare("SELECT ran_at, ok, result FROM holiday_sync_runs ORDER BY id DESC LIMIT 10").all();
+  const added = await db.prepare("SELECT holiday_date, name, event_id FROM holiday_events ORDER BY holiday_date").all();
+  return {
+    runs: runs.results.map((r) => ({ ranAt: r.ran_at, ok: Boolean(r.ok), ...JSON.parse(r.result) })),
+    added: added.results.map((r) => ({ date: r.holiday_date, name: r.name, eventId: r.event_id })),
+  };
+}
