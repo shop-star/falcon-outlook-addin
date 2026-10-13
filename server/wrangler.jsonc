@@ -1,7 +1,6 @@
 // Cloudflare Worker for the "Create Fergus job" task pane.
-// Secrets (FERGUS_API_TOKEN, ANTHROPIC_API_KEY), FERGUS_GROUPS and
-// FERGUS_HOLIDAY_USER_IDS are set in the Cloudflare dashboard, never here:
-// keep_vars stops a deploy removing them.
+// Secrets (FERGUS_API_TOKEN, ANTHROPIC_API_KEY) and FERGUS_GROUPS are set in
+// the Cloudflare dashboard, never here: keep_vars stops a deploy removing them.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "fergus-job",

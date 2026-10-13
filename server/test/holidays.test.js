@@ -69,7 +69,7 @@ function syncSetup(now, failures) {
   const fake = fakeFergus({ failures });
   const fergus = new FergusClient({ apiToken: "t", baseUrl: "https://fergus.test", fetchImpl: fake.fetchImpl, sleep: async () => {} });
   const db = testD1();
-  return { fake, db, sync: (at = now) => new HolidaySync({ fergus, db, userIds: [11, 12, 13], eventType: "OTHER", now: () => at }).run() };
+  return { fake, db, sync: (at = now) => new HolidaySync({ fergus, db, now: () => at }).run() };
 }
 
 test("sync adds the next year's holidays once, then only new ones", async () => {
@@ -83,8 +83,6 @@ test("sync adds the next year's holidays once, then only new ones", async () => 
   assert.equal(first.created.length, 23); // 11 national + 12 regional
   const [hawkesBay, labourDay] = fake.calls.filter((c) => c.path === "/calendarEvents").map((c) => c.body);
   assert.deepEqual(labourDay, {
-    userId: 11,
-    linkedUserIds: [12, 13],
     startTime: "2026-10-25T18:00:00.000Z",
     endTime: "2026-10-26T04:00:00.000Z",
     eventTitle: "Labour Day",
@@ -113,10 +111,4 @@ test("a Fergus failure stops the run and is retried next time", async () => {
   assert.equal(retry.created[0].name, "Labour Day");
   assert.equal(retry.skipped.length, 1); // Hawke's Bay, added by the first run
   assert.equal(fake.calls.filter((c) => c.path === "/calendarEvents").length, 24);
-});
-
-test("the sync refuses to run without a Fergus user", async () => {
-  const fergus = new FergusClient({ apiToken: "t", baseUrl: "https://fergus.test", fetchImpl: fakeFergus().fetchImpl });
-  const sync = new HolidaySync({ fergus, db: testD1(), userIds: [], eventType: "OTHER" });
-  await assert.rejects(sync.run(), /FERGUS_HOLIDAY_USER_IDS/);
 });

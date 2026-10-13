@@ -6,8 +6,9 @@
  * holidays and every region's anniversary day. The first run adds about a
  * year's worth; after that each run adds whatever has newly come into range.
  *
- * Fergus events have start and end times rather than an all-day flag, so a
- * holiday is entered as the working day, 7am to 5pm New Zealand time.
+ * Each is an unassigned event, which everyone in Fergus sees. Fergus events
+ * have start and end times rather than an all-day flag, so a holiday is
+ * entered as the working day, 7am to 5pm New Zealand time.
  */
 import { holidaysBetween } from "./holidays.js";
 
@@ -16,20 +17,13 @@ const DAY_START = 7;
 const DAY_END = 17;
 
 export class HolidaySync {
-  // `userIds`: the first owns each event, the rest are linked to it.
-  constructor({ fergus, db, userIds, eventType, now = () => new Date() }) {
+  constructor({ fergus, db, now = () => new Date() }) {
     this.fergus = fergus;
     this.db = db;
-    this.userIds = userIds;
-    this.eventType = eventType;
     this.now = now;
   }
 
   async run() {
-    if (!this.userIds.length) {
-      throw new Error("FERGUS_HOLIDAY_USER_IDS isn't set, so there's no Fergus user to put the public holidays on. See the README.");
-    }
-    const [userId, ...linkedUserIds] = this.userIds;
     const from = nzToday(this.now());
     const to = `${Number(from.slice(0, 4)) + 1}${from.slice(4)}`;
     const created = [];
@@ -50,9 +44,6 @@ export class HolidaySync {
       let event;
       try {
         event = await this.fergus.createCalendarEvent({
-          userId,
-          linkedUserIds,
-          eventType: this.eventType,
           title: holiday.name,
           description: holiday.region
             ? `Regional anniversary day: a public holiday in ${holiday.region} only. Added automatically.`

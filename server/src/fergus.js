@@ -117,17 +117,15 @@ export class FergusClient {
 
   // ----- Calendar -----
 
-  // An event not tied to a job, e.g. a public holiday. `userId` is the
-  // Fergus user it belongs to and `linkedUserIds` everyone else it shows for;
-  // `startTime`/`endTime` are ISO instants.
-  async createCalendarEvent({ userId, linkedUserIds = [], eventType, title, description, startTime, endTime }) {
+  // An unassigned "OTHER" event (not tied to a job or a person), which
+  // everyone in Fergus sees, e.g. a public holiday. `startTime`/`endTime`
+  // are ISO instants.
+  async createCalendarEvent({ title, description, startTime, endTime }) {
     const body = {
-      userId,
-      linkedUserIds,
       startTime,
       endTime,
       eventTitle: title,
-      eventType,
+      eventType: "OTHER",
       description,
       frequency: "NEVER",
     };

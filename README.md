@@ -269,36 +269,22 @@ which is early morning on the 2nd in New Zealand.
   moves to the Monday or Tuesday). They're worked out in
   `server/src/holidays.js` from the Holidays Act rules, so no outside
   service is involved. Matariki's dates are set in law up to 2052.
-- **How they look in Fergus:** a non-job event from 7am to 5pm New Zealand
-  time, titled with the holiday's name, on the calendars of the users in
-  `FERGUS_HOLIDAY_USER_IDS`.
+- **How they look in Fergus:** an unassigned event (type `OTHER`, not
+  tied to a job or a person), so everyone sees it, from 7am to 5pm New
+  Zealand time, titled with the holiday's name.
 - **No duplicates:** each holiday added is recorded in the D1 table
   `holiday_events`, so the first run adds about two dozen events and later
   runs add only what's come into the twelve-month window.
 - **If Fergus refuses an event,** the run stops, logs the error (Workers &
   Pages → fergus-job → Logs), and that holiday is tried again next month.
 
-### Set it up
-
-In **Workers & Pages → fergus-job → Settings → Variables and Secrets**, add:
-
-| Name | Type | Value |
-| --- | --- | --- |
-| `FERGUS_HOLIDAY_USER_IDS` | Text | Comma-separated Fergus user IDs. The first owns each event, the rest are linked so it shows on their calendars too. Until this is set the sync logs an error and adds nothing. |
-| `FERGUS_HOLIDAY_EVENT_TYPE` | Text | Optional. The `eventType` for a non-job event; default `OTHER`. |
-
-The request follows Fergus's `POST /calendarEvents` example (`userId`,
-`linkedUserIds`, `startTime`, `endTime`, `eventTitle`, `eventType`,
-`description`, `frequency: "NEVER"`), but two details are still
-unchecked: that the path is `/calendarEvents`, and which `eventType`
-Fergus accepts for an event that isn't a job (the example only shows
-`JOB_PHASE`). The first run will say if either is wrong.
+There's nothing to set up beyond the Worker itself: merging to `main`
+deploys the cron trigger and creates the `holiday_events` table.
 
 ### Test it now
 
 To run the sync now rather than waiting for the 1st, run the Worker
-locally against real Fergus (with `FERGUS_HOLIDAY_USER_IDS` in
-`.dev.vars`) and trigger the cron:
+locally against real Fergus and trigger the cron:
 
 ```sh
 cd server

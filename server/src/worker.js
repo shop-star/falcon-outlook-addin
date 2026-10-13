@@ -113,7 +113,7 @@ async function readJson(request) {
 export function createScheduled(getApp) {
   return async function scheduled(controller, env) {
     const app = getApp(env);
-    const sync = new HolidaySync({ fergus: app.fergus, db: env.DB, ...app.config.holidays });
+    const sync = new HolidaySync({ fergus: app.fergus, db: env.DB });
     const result = await sync.run();
     const added = result.created.map((h) => `${h.date} ${h.name}`).join("; ") || "nothing new";
     console.log(`Public holidays ${result.from} to ${result.to}: added ${added}.`);

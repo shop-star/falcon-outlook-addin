@@ -48,14 +48,6 @@ export function loadConfig(env) {
       defaultJobType,
     },
 
-    // The monthly public-holiday sync (holiday-sync.js). The first user ID
-    // owns each event; the rest are linked so it shows on their calendars
-    // too. Without any, the sync logs that it's not set up and does nothing.
-    holidays: {
-      userIds: list(env.FERGUS_HOLIDAY_USER_IDS).map(Number).filter(Number.isInteger),
-      eventType: env.FERGUS_HOLIDAY_EVENT_TYPE || "OTHER",
-    },
-
     anthropic: {
       apiKey: env.ANTHROPIC_API_KEY || "",
       model: env.ANTHROPIC_MODEL || "claude-opus-5-5",
