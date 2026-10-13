@@ -20,9 +20,9 @@
     "ALLOWED_ORIGINS": "https://shop-star.github.io"
   },
 
-  // Monthly public-holiday sync (src/holiday-sync.js): 19:00 UTC on the 1st,
-  // which is 7–8am on the 2nd in New Zealand.
-  "triggers": { "crons": ["0 19 1 * *"] },
+  // Daily public-holiday sync (src/holiday-sync.js): 19:00 UTC, which is
+  // 7–8am in New Zealand.
+  "triggers": { "crons": ["0 19 * * *"] },
 
   "d1_databases": [
     {

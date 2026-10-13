@@ -6,7 +6,7 @@
  *   GET  /api/holidays      – recent public-holiday sync runs and the holidays added, no auth
  *   GET  /api/holidays/run  – run the public-holiday sync now and show the result, no auth
  *
- * It also runs on a monthly cron trigger (wrangler.jsonc) to keep New
+ * It also runs on a daily cron trigger (wrangler.jsonc) to keep New
  * Zealand public holidays on the Fergus calendar a year ahead
  * (holiday-sync.js).
  *

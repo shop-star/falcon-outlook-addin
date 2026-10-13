@@ -1,5 +1,5 @@
 /* New Zealand public holidays, worked out from the rules in the Holidays Act
- * 2003 rather than fetched from a web service, so the monthly sync has
+ * 2003 rather than fetched from a web service, so the daily sync has
  * nothing extra to break.
  *
  * Dates are the days the holiday is *observed* — Waitangi Day on a Saturday
