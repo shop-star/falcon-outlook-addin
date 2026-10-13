@@ -39,6 +39,7 @@ export function fakeFergus({ customers = [], sites = [], failures = {} } = {}) {
         return json({ data: { id, jobNo: `J${id}`, ...body } }, 201);
       }
       case "POST /notes":
+      case "POST /calendarEvents":
         return json({ data: { id: nextId++, ...body } }, 201);
       default:
         return json({ message: "not found" }, 404);

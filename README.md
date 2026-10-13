@@ -253,3 +253,48 @@ job instead of the form.
 > permission than this add-in asks for). Each person creates **Fergus job
 > created** once — **Categorize → Manage categories → New** — or the pane
 > says it couldn't tag the email. The job is created either way.
+
+## Public holidays on the Fergus calendar
+
+The same Worker also keeps New Zealand public holidays on the Fergus
+calendar a year ahead. A Cloudflare cron trigger (`triggers` in
+`server/wrangler.jsonc`) runs it at 19:00 UTC on the 1st of each month,
+which is early morning on the 2nd in New Zealand.
+
+- **Which holidays:** the national ones (New Year, Waitangi, Easter,
+  ANZAC, King's Birthday, Matariki, Labour Day, Christmas, Boxing Day)
+  **and every region's anniversary day** (Wellington, Auckland, Canterbury,
+  Otago and the rest). A regional one's description says which region it
+  applies to. Each is entered on the day it's *observed* (a weekend holiday
+  moves to the Monday or Tuesday). They're worked out in
+  `server/src/holidays.js` from the Holidays Act rules, so no outside
+  service is involved. Matariki's dates are set in law up to 2052.
+- **How they look in Fergus:** an unassigned event (type `OTHER`, not
+  tied to a job or a person), so everyone sees it, from 7am to 5pm New
+  Zealand time, titled with the holiday's name.
+- **No duplicates:** each holiday added is recorded in the D1 table
+  `holiday_events`, so the first run adds about two dozen events and later
+  runs add only what's come into the twelve-month window.
+- **If Fergus refuses an event,** the run stops, logs the error (Workers &
+  Pages → fergus-job → Logs), and that holiday is tried again next month.
+
+There's nothing to set up beyond the Worker itself: merging to `main`
+deploys the cron trigger and creates the `holiday_events` table.
+
+### Test it now
+
+To run the sync now rather than waiting for the 1st, run the Worker
+locally against real Fergus and trigger the cron:
+
+```sh
+cd server
+npx wrangler d1 migrations apply fergus-job --local
+npx wrangler dev --test-scheduled
+# in another terminal:
+curl "localhost:8787/__scheduled?cron=0+19+1+*+*"
+```
+
+This creates real events in Fergus. If Fergus rejects one, its message
+appears in the `wrangler dev` output. A local run records holidays in the
+local database only, so delete the test events in Fergus before the
+deployed Worker's first run adds them again.

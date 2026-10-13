@@ -5,6 +5,7 @@
  *   GET  /customers?filterSearchText=…     POST /customers
  *   GET  /sites?filterSearchText=…         POST /sites
  *   POST /jobs                             POST /notes  (entityName "job")
+ *   POST /calendarEvents  (public holidays — see createCalendarEvent)
  * Lists come back as { data: [...], paging: {...} } and single records as
  * { data: {...} }; unwrap() tolerates either that or a bare object, since
  * response envelopes are the least documented part of the API.
@@ -112,6 +113,25 @@ export class FergusClient {
     const res = await this.request("POST", "/notes", { body, action: "adding the email as a job note" });
     const note = unwrap(res);
     return { id: note?.id ?? null };
+  }
+
+  // ----- Calendar -----
+
+  // An unassigned "OTHER" event (not tied to a job or a person), which
+  // everyone in Fergus sees, e.g. a public holiday. `startTime`/`endTime`
+  // are ISO instants.
+  async createCalendarEvent({ title, description, startTime, endTime }) {
+    const body = {
+      startTime,
+      endTime,
+      eventTitle: title,
+      eventType: "OTHER",
+      description,
+      frequency: "NEVER",
+    };
+    const res = await this.request("POST", "/calendarEvents", { body, action: "adding a public holiday to the calendar" });
+    const event = unwrap(res);
+    return { id: event?.id ?? event?.calendarEventId ?? null };
   }
 }
 
