@@ -5,6 +5,7 @@
  * default so a local run needs nothing but those two plus AUTH_DISABLED=true
  * (in .dev.vars).
  */
+import { HOLIDAY_REGIONS } from "./holidays.js";
 
 function list(value, fallback = []) {
   if (!value) return fallback;
@@ -29,11 +30,19 @@ export function loadConfig(env) {
     throw new Error(`FERGUS_DEFAULT_JOB_TYPE must be one of: ${JOB_TYPES.join(", ")}`);
   }
 
+  const holidayRegion = (env.HOLIDAY_REGION || "").trim().toLowerCase();
+  if (holidayRegion && !HOLIDAY_REGIONS.includes(holidayRegion)) {
+    throw new Error(`HOLIDAY_REGION must be empty or one of: ${HOLIDAY_REGIONS.join(", ")}`);
+  }
+
   const config = {
     allowedOrigins: list(env.ALLOWED_ORIGINS, ["https://shop-star.github.io"]),
     // Our own staff's email domains, so a forwarded email's forwarder isn't
     // mistaken for the customer.
     ownEmailDomains: list(env.OWN_EMAIL_DOMAINS),
+    // Whose regional anniversary day goes on the Fergus calendar alongside
+    // the national public holidays. Empty for none.
+    holidayRegion,
 
     fergus: {
       apiToken: env.FERGUS_API_TOKEN || "",

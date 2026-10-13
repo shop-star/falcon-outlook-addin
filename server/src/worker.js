@@ -4,6 +4,10 @@
  *   POST /api/analyze   – { email } → extraction + match candidates, or the existing job
  *   POST /api/jobs      – { email, customer, site, jobType, group, title, description } → the job
  *
+ * It also runs on a monthly cron trigger (wrangler.jsonc) to keep New
+ * Zealand public holidays on the Fergus calendar a year ahead
+ * (holiday-sync.js).
+ *
  * Settings come from the Worker's environment (wrangler.jsonc vars plus
  * secrets set in the Cloudflare dashboard); the actioned-emails record is
  * the D1 database bound as DB.
@@ -13,6 +17,7 @@ import { createAuthenticator } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { AppError } from "./errors.js";
 import { FergusClient } from "./fergus.js";
+import { HolidaySync } from "./holiday-sync.js";
 import { JobService } from "./jobs.js";
 import { JobStore } from "./store.js";
 
@@ -25,13 +30,15 @@ let cached = null;
 function setup(env) {
   if (cached?.env === env) return cached;
   const config = loadConfig(env);
+  const fergus = new FergusClient({ apiToken: config.fergus.apiToken, baseUrl: config.fergus.baseUrl });
   cached = {
     env,
     config,
+    fergus,
     authenticate: createAuthenticator(config.auth),
     service: new JobService({
       config,
-      fergus: new FergusClient({ apiToken: config.fergus.apiToken, baseUrl: config.fergus.baseUrl }),
+      fergus,
       anthropic: new Anthropic({ apiKey: config.anthropic.apiKey }),
       store: new JobStore(env.DB),
     }),
@@ -103,4 +110,14 @@ async function readJson(request) {
   }
 }
 
-export default { fetch: createHandler(setup) };
+export function createScheduled(getApp) {
+  return async function scheduled(controller, env) {
+    const app = getApp(env);
+    const sync = new HolidaySync({ fergus: app.fergus, db: env.DB, region: app.config.holidayRegion });
+    const result = await sync.run();
+    const added = result.created.map((h) => `${h.date} ${h.name}`).join("; ") || "nothing new";
+    console.log(`Public holidays ${result.from} to ${result.to}: added ${added}.`);
+  };
+}
+
+export default { fetch: createHandler(setup), scheduled: createScheduled(setup) };
