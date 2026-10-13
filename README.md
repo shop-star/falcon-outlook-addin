@@ -258,8 +258,8 @@ job instead of the form.
 
 The same Worker also keeps New Zealand public holidays on the Fergus
 calendar a year ahead. A Cloudflare cron trigger (`triggers` in
-`server/wrangler.jsonc`) runs it at 19:00 UTC on the 1st of each month,
-which is early morning on the 2nd in New Zealand.
+`server/wrangler.jsonc`) runs it daily at 19:00 UTC, which is 7–8am in
+New Zealand.
 
 - **Which holidays:** the national ones (New Year, Waitangi, Easter,
   ANZAC, King's Birthday, Matariki, Labour Day, Christmas, Boxing Day)
@@ -274,12 +274,14 @@ which is early morning on the 2nd in New Zealand.
   Zealand time, titled with the holiday's name.
 - **No duplicates:** each holiday added is recorded in the D1 table
   `holiday_events`, so the first run adds about two dozen events and later
-  runs add only what's come into the twelve-month window.
+  runs add only what's come into the twelve-month window (most days,
+  nothing).
 - **If Fergus refuses an event,** the run stops and that holiday is tried
-  again next month.
+  again the next day.
 - **Each run's outcome** (what was added, or Fergus's error) is shown at
   https://fergus-job.martin-3f7.workers.dev/api/holidays, along with every
-  holiday added so far.
+  holiday added so far. A run is recorded even when it adds nothing, so a
+  new entry each morning shows the schedule is working.
 - **To run it now,** open
   https://fergus-job.martin-3f7.workers.dev/api/holidays/run in a browser.
   It shows what was added, or Fergus's error. Running it again only adds

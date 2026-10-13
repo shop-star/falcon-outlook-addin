@@ -1,10 +1,11 @@
 /* Keeps New Zealand public holidays on the Fergus calendar a year ahead.
  *
- * Run monthly by the Worker's cron trigger (wrangler.jsonc). Each run looks
+ * Run daily by the Worker's cron trigger (wrangler.jsonc). Each run looks
  * at the next twelve months, and creates a Fergus calendar event for every
  * holiday not already recorded in D1 (table holiday_events): the national
  * holidays and every region's anniversary day. The first run adds about a
- * year's worth; after that each run adds whatever has newly come into range.
+ * year's worth; after that a run adds whatever has newly come into range,
+ * which most days is nothing.
  *
  * Each is an unassigned event, which everyone in Fergus sees. Fergus events
  * have start and end times rather than an all-day flag, so a holiday is
@@ -52,7 +53,7 @@ export class HolidaySync {
           endTime: nzTimeToIso(holiday.date, DAY_END),
         });
       } catch (err) {
-        // Free the claim so next month's run tries again, then stop: a bad
+        // Free the claim so the next run tries again, then stop: a bad
         // token or a rejected event would fail the same way for the rest.
         await this.db.prepare("DELETE FROM holiday_events WHERE holiday_date = ? AND name = ?").bind(holiday.date, holiday.name).run();
         err.message = `Adding ${holiday.name} (${holiday.date}) to the Fergus calendar failed: ${err.message}`;
