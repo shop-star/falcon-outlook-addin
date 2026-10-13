@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { FergusClient } from "../src/fergus.js";
 import { HolidaySync, nzTimeToIso, nzToday } from "../src/holiday-sync.js";
 import { holidaysBetween, nzPublicHolidays } from "../src/holidays.js";
+import { createHandler, createScheduled } from "../src/worker.js";
 import { testD1 } from "./d1.js";
 import { fakeFergus } from "./fakes.js";
 
@@ -111,4 +112,37 @@ test("a Fergus failure stops the run and is retried next time", async () => {
   assert.equal(retry.created[0].name, "Labour Day");
   assert.equal(retry.skipped.length, 1); // Hawke's Bay, added by the first run
   assert.equal(fake.calls.filter((c) => c.path === "/calendarEvents").length, 24);
+});
+
+test("each scheduled run's outcome shows at GET /api/holidays", async () => {
+  const fake = fakeFergus({ failures: { "POST /calendarEvents": [{ status: 404, body: { message: "Route not found" } }] } });
+  const fergus = new FergusClient({ apiToken: "t", baseUrl: "https://fergus.test", fetchImpl: fake.fetchImpl, sleep: async () => {} });
+  const env = { DB: testD1() };
+  const scheduled = createScheduled(() => ({ fergus }));
+  const handle = createHandler(() => ({ config: { allowedOrigins: [] } }));
+  const status = async () => (await handle(new Request("https://worker.test/api/holidays"), env)).json();
+
+  const error = console.error;
+  console.error = () => {};
+  try {
+    await assert.rejects(scheduled({}, env), /Route not found/);
+  } finally {
+    console.error = error;
+  }
+  let body = await status();
+  assert.equal(body.runs[0].ok, false);
+  assert.match(body.runs[0].error, /couldn't find a record.*Route not found/);
+  assert.deepEqual(body.added, []);
+
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await scheduled({}, env);
+  } finally {
+    console.log = log;
+  }
+  body = await status();
+  assert.equal(body.runs[0].ok, true);
+  assert.equal(body.runs[0].created.length, body.added.length);
+  assert.equal(body.runs[1].ok, false);
 });
