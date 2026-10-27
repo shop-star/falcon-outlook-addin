@@ -248,10 +248,17 @@ Check the form, create the job, and confirm the email gets the **Fergus job
 created** category. Close and reopen the pane: it should show the existing
 job instead of the form.
 
+> **Shared mailboxes:** both buttons also work in shared or delegated
+> mailboxes (the manifest sets `SupportsSharedFolders`), provided the
+> mailbox is opened the usual way, as a shared mailbox under your own
+> account. If Outlook for Mac has it added as a separate account
+> instead, add-ins installed for you don't appear there.
+>
 > **Outlook category:** add-ins can only apply a category that already
 > exists in the mailbox's category list (creating one needs a much broader
 > permission than this add-in asks for). Each person creates **Fergus job
-> created** once — **Categorize → Manage categories → New** — or the pane
+> created** once — **Categorize → Manage categories → New** (and once in
+> each shared mailbox you use it in, which has its own list) — or the pane
 > says it couldn't tag the email. The job is created either way.
 
 ## Public holidays on the Fergus calendar
