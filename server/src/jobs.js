@@ -176,7 +176,9 @@ export class JobService {
   publicJob(record) {
     const url = this.config.fergus.jobUrlTemplate
       .replace("{jobId}", encodeURIComponent(record.jobId ?? ""))
-      .replace("{jobNo}", encodeURIComponent(record.jobNo ?? ""));
+      // Fergus's web app addresses jobs by number. Should a job have come
+      // back without one, its internal ID is the best guess left.
+      .replace("{jobNo}", encodeURIComponent(record.jobNo ?? record.jobId ?? ""));
     return publicJobFields(record, url);
   }
 }
