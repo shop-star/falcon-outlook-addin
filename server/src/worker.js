@@ -3,6 +3,8 @@
  *   GET  /api/health    – liveness check, no auth
  *   POST /api/analyze   – { email } → extraction + match candidates, or the existing job
  *   POST /api/jobs      – { email, customer, site, jobType, group, title, description } → the job
+ *   POST /api/jobs/attachments – { internetMessageId, key, name, contentType, contentBase64 }
+ *                         → that attachment copied onto the email's job
  *   GET  /api/holidays      – recent public-holiday sync runs and the holidays added, no auth
  *   GET  /api/holidays/run  – run the public-holiday sync now and show the result, no auth
  *
@@ -20,10 +22,12 @@ import { loadConfig } from "./config.js";
 import { AppError } from "./errors.js";
 import { FergusClient } from "./fergus.js";
 import { HolidaySync, holidayStatus, recordRun } from "./holiday-sync.js";
-import { JobService } from "./jobs.js";
+import { JobService, MAX_ATTACHMENT_BYTES } from "./jobs.js";
 import { JobStore } from "./store.js";
 
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
+// Base64 makes a file a third bigger; the rest is room for the other fields.
+const MAX_ATTACHMENT_REQUEST_BYTES = Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4 + 64 * 1024;
 
 // Built once per Worker instance and reused across requests, so Microsoft's
 // signing keys are fetched once rather than on every call.
@@ -52,7 +56,12 @@ export function createHandler(getApp) {
   const routes = {
     "POST /api/analyze": (service, body) => service.analyze(body.email),
     "POST /api/jobs": (service, body, user) => service.create(body, user),
+    "POST /api/jobs/attachments": (service, body) => service.addAttachment(body),
   };
+  const limits = {
+    "POST /api/jobs/attachments": [MAX_ATTACHMENT_REQUEST_BYTES, "ATTACHMENT_TOO_LARGE", "This attachment is too large to send to the server."],
+  };
+  const defaultLimit = [MAX_REQUEST_BYTES, "EMAIL_TOO_LARGE", "This email is too large to send to the server."];
 
   return async function handle(request, env) {
     const url = new URL(request.url);
@@ -90,11 +99,12 @@ export function createHandler(getApp) {
         }
       }
 
-      const handler = routes[`${request.method} ${url.pathname}`];
+      const route = `${request.method} ${url.pathname}`;
+      const handler = routes[route];
       if (!handler) throw new AppError(404, "NOT_FOUND", "Not found.");
 
       const user = await app.authenticate(request);
-      const body = await readJson(request);
+      const body = await readJson(request, limits[route] ?? defaultLimit);
       return json(200, await handler(app.service, body, user), headers);
     } catch (err) {
       if (err instanceof AppError) {
@@ -112,9 +122,9 @@ function json(status, body, headers) {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-async function readJson(request) {
+async function readJson(request, [maxBytes, code, message]) {
   const text = await request.text();
-  if (text.length > MAX_REQUEST_BYTES) throw new AppError(413, "EMAIL_TOO_LARGE", "This email is too large to send to the server.");
+  if (text.length > maxBytes) throw new AppError(413, code, message);
   try {
     return JSON.parse(text || "{}");
   } catch {

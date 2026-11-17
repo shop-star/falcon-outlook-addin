@@ -5,6 +5,7 @@
  *   GET  /customers?filterSearchText=…     POST /customers
  *   GET  /sites?filterSearchText=…         POST /sites
  *   POST /jobs                             POST /notes  (entityName "job")
+ *   POST /attachments  (multipart; entityType "job", entityTypeId — see uploadJobAttachment)
  *   POST /calendarEvents  (public holidays — see createCalendarEvent)
  * Lists come back as { data: [...], paging: {...} } and single records as
  * { data: {...} }; unwrap() tolerates either that or a bare object, since
@@ -26,7 +27,9 @@ export class FergusClient {
 
   // `action` reads as the end of "Fergus … while <action>", for messages
   // the task pane shows verbatim.
-  async request(method, path, { body, action }) {
+  // `form` (a FormData) is sent as multipart instead of a JSON `body`; fetch
+  // sets its Content-Type, boundary included.
+  async request(method, path, { body, form, action }) {
     for (let attempt = 0; ; attempt++) {
       let response;
       try {
@@ -37,7 +40,7 @@ export class FergusClient {
             Accept: "application/json",
             ...(body ? { "Content-Type": "application/json" } : {}),
           },
-          body: body ? JSON.stringify(body) : undefined,
+          body: form ?? (body ? JSON.stringify(body) : undefined),
         });
       } catch (err) {
         throw new AppError(502, "FERGUS_UNREACHABLE", `Couldn't reach Fergus while ${action}. Check your connection and try again.`, {
@@ -113,6 +116,17 @@ export class FergusClient {
     const res = await this.request("POST", "/notes", { body, action: "adding the email as a job note" });
     const note = unwrap(res);
     return { id: note?.id ?? null };
+  }
+
+  // Copies one email attachment onto the job. `bytes` is a Uint8Array.
+  async uploadJobAttachment(jobId, { name, contentType, bytes }) {
+    const form = new FormData();
+    form.append("entityType", "job");
+    form.append("entityTypeId", String(jobId));
+    form.append("file", new Blob([bytes], { type: contentType || "application/octet-stream" }), name);
+    const res = await this.request("POST", "/attachments", { form, action: `copying the attachment "${name}" to the job` });
+    const attachment = unwrap(res);
+    return { id: attachment?.id ?? attachment?.attachmentId ?? null };
   }
 
   // ----- Calendar -----

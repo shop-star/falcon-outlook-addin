@@ -4,7 +4,8 @@
  * holds the Fergus and Claude credentials — nothing secret lives here), and
  * shows an editable form prefilled with what Claude pulled out of the email
  * plus any matching Fergus customers and sites. On confirm, the backend
- * creates the job and this pane tags the email with an Outlook category.
+ * creates the job and this pane tags the email with an Outlook category,
+ * then copies the ticked attachments onto the job, one request each.
  *
  * Requests to the backend carry a Microsoft 365 access token obtained via
  * nested app authentication (MSAL's createNestablePublicClientApplication),
@@ -12,6 +13,7 @@
  */
 
 const CATEGORY = "Fergus job created";
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024; // the backend's limit too
 const cfg = window.FERGUS_ADDIN_CONFIG || {};
 
 let email = null;
@@ -22,6 +24,7 @@ Office.onReady(() => {
   document.getElementById("retryBtn").addEventListener("click", () => start());
   document.getElementById("signInBtn").addEventListener("click", () => start({ interactive: true }));
   document.getElementById("jobForm").addEventListener("submit", onSubmit);
+  document.getElementById("copyAttachBtn").addEventListener("click", () => copyAttachments());
   start();
 });
 
@@ -107,11 +110,12 @@ async function onSubmit(event) {
     return;
   }
 
+  const selected = selectedAttachmentKeys();
   button.disabled = true;
   button.textContent = "Creating job in Fergus…";
   try {
     const result = await api("/api/jobs", payload);
-    showDone(result.job, result.status === "created");
+    showDone(result.job, result.status === "created", selected);
   } catch (err) {
     // Stay on the form so nothing typed is lost; the backend remembers any
     // customer/site it already created, so trying again won't duplicate them.
@@ -121,7 +125,10 @@ async function onSubmit(event) {
   }
 }
 
-async function showDone(job, created) {
+// `toCopy`: keys of attachments ticked on the form, copied straight away.
+// Without it (reopening an email already actioned) any not yet copied are
+// listed with a button, rather than copied without anyone asking.
+async function showDone(job, created, toCopy = null) {
   const label = job.jobNo ? `job ${job.jobNo}` : "a job";
   document.getElementById("doneHeading").textContent = created ? `Created ${label} in Fergus` : `Already in Fergus as ${label}`;
 
@@ -144,6 +151,7 @@ async function showDone(job, created) {
     }
   };
   show("doneView");
+  showAttachments(job, toCopy);
 
   const note = document.getElementById("categoryNote");
   const tagged = await addCategory();
@@ -174,12 +182,57 @@ function readEmail() {
         // For a received message, the item is created in our mailbox when it arrives.
         receivedAt: item.dateTimeCreated instanceof Date ? item.dateTimeCreated.toISOString() : "",
         bodyText: result.value || "",
+        // Inline ones are mostly signature logos; leave them out.
         attachments: (item.attachments || [])
           .filter((a) => !a.isInline)
           .map((a) => ({ name: a.name, size: a.size, contentType: a.contentType || "" })),
       });
     });
   });
+}
+
+// The email's attachments as this pane works with them. `key` names one
+// the same way for everyone (Outlook's attachment IDs differ per mailbox),
+// so the backend can tell which are already on the job.
+function emailAttachments() {
+  const item = Office.context.mailbox.item;
+  return (item?.attachments || [])
+    .filter((a) => !a.isInline)
+    .map((a) => {
+      let problem = "";
+      if (a.attachmentType === Office.MailboxEnums.AttachmentType.Cloud) problem = "A link to a cloud file — add it in Fergus by hand.";
+      else if (a.size > MAX_ATTACHMENT_BYTES) problem = `Over ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB — save it from Outlook and add it in Fergus.`;
+      return { id: a.id, name: a.name || "attachment", size: a.size || 0, contentType: a.contentType || "", isItem: a.attachmentType === Office.MailboxEnums.AttachmentType.Item, key: `${a.name}|${a.size}`, problem };
+    });
+}
+
+// Base64 for a file; an attached email comes back as .eml text.
+function readAttachment(att) {
+  const item = Office.context.mailbox.item;
+  return new Promise((resolve, reject) => {
+    item.getAttachmentContentAsync(att.id, (result) => {
+      if (result.status !== Office.AsyncResultStatus.Succeeded) {
+        reject(uiError("Outlook couldn't read it."));
+        return;
+      }
+      const { format, content } = result.value;
+      const F = Office.MailboxEnums.AttachmentContentFormat;
+      if (format === F.Base64) return resolve({ name: att.name, contentType: att.contentType, contentBase64: content });
+      if (format === F.Eml || format === F.ICalendar) {
+        const ext = format === F.Eml ? ".eml" : ".ics";
+        const name = att.name.toLowerCase().endsWith(ext) ? att.name : `${att.name}${ext}`;
+        return resolve({ name, contentType: format === F.Eml ? "message/rfc822" : "text/calendar", contentBase64: textToBase64(content) });
+      }
+      reject(uiError("It's a link to a cloud file — add it in Fergus by hand."));
+    });
+  });
+}
+
+function textToBase64(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
 }
 
 // Categories must already exist in the mailbox's master list to be applied;
@@ -262,6 +315,120 @@ async function api(path, body) {
 }
 
 // ---------------------------------------------------------------------------
+// Copying attachments onto the job
+
+let attachState = null; // { job, rows: [{ att, status: "copied"|"pending"|"copying"|"failed"|"skipped", message }] }
+
+function showAttachments(job, toCopy) {
+  const atts = emailAttachments();
+  const copied = new Set(job.attachments || []);
+  attachState = {
+    job,
+    rows: atts.map((att) => {
+      if (copied.has(att.key)) return { att, status: "copied", checked: false };
+      if (att.problem) return { att, status: "skipped", message: att.problem, checked: false };
+      return { att, status: "pending", checked: toCopy ? toCopy.includes(att.key) : true };
+    }),
+  };
+  document.getElementById("attachView").hidden = atts.length === 0;
+  renderAttachments();
+  if (toCopy?.length) copyAttachments();
+}
+
+function renderAttachments() {
+  const list = document.getElementById("attachList");
+  const rows = attachState.rows;
+  const busy = rows.some((r) => r.status === "copying");
+  list.replaceChildren(
+    ...rows.map((row) => {
+      const li = document.createElement("li");
+      const label = document.createElement("label");
+      if (row.status === "pending" || row.status === "failed") {
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = row.checked;
+        box.disabled = busy;
+        box.addEventListener("change", () => {
+          row.checked = box.checked;
+          renderAttachments();
+        });
+        label.append(box);
+      }
+      const name = document.createElement("span");
+      name.className = "attach-name";
+      name.textContent = `${row.att.name} (${formatSize(row.att.size)})`;
+      label.append(name);
+      const status = document.createElement("span");
+      status.className = `attach-status ${row.status === "copied" ? "ok" : row.status === "failed" ? "failed" : ""}`;
+      status.textContent = { copied: "On the job", copying: "Copying…", failed: "Failed", skipped: "Not copied", pending: "" }[row.status];
+      li.append(label, status);
+      if (row.message) {
+        const msg = document.createElement("div");
+        msg.className = `small ${row.status === "failed" ? "attach-status failed" : "muted"}`;
+        msg.textContent = row.message;
+        li.style.flexWrap = "wrap";
+        msg.style.flexBasis = "100%";
+        msg.style.textAlign = "left";
+        li.append(msg);
+      }
+      return li;
+    })
+  );
+
+  const ticked = rows.filter((r) => r.checked && (r.status === "pending" || r.status === "failed")).length;
+  const button = document.getElementById("copyAttachBtn");
+  button.hidden = busy || !rows.some((r) => r.status === "pending" || r.status === "failed");
+  button.disabled = ticked === 0;
+  button.textContent = rows.some((r) => r.status === "failed") ? `Try again (${ticked})` : `Copy ${ticked} to Fergus`;
+
+  const done = rows.filter((r) => r.status === "copied").length;
+  const failed = rows.filter((r) => r.status === "failed").length;
+  const copying = rows.findIndex((r) => r.status === "copying");
+  const summary = document.getElementById("attachSummary");
+  if (copying >= 0) summary.textContent = `Copying attachments to Fergus… ${attachState.progress.done + 1} of ${attachState.progress.total}`;
+  else if (failed) summary.textContent = `${failed} couldn't be copied. Tick them and try again, or add them in Fergus by hand.`;
+  else summary.textContent = done ? `${done} on the job in Fergus.` : "";
+}
+
+// One at a time: keeps each request small and in step with Fergus's rate limit.
+async function copyAttachments() {
+  const queue = attachState.rows.filter((r) => r.checked && (r.status === "pending" || r.status === "failed"));
+  attachState.progress = { done: 0, total: queue.length };
+  for (const row of queue) {
+    row.status = "copying";
+    row.checked = false;
+    row.message = "";
+    renderAttachments();
+    try {
+      const content = await readAttachment(row.att);
+      const result = await api("/api/jobs/attachments", {
+        internetMessageId: email.internetMessageId,
+        key: row.att.key,
+        ...content,
+      });
+      row.status = "copied";
+      attachState.job = result.job;
+    } catch (err) {
+      row.status = "failed";
+      row.checked = true;
+      row.message = err.message;
+    }
+    attachState.progress.done++;
+    renderAttachments();
+  }
+}
+
+function selectedAttachmentKeys() {
+  return [...document.querySelectorAll('#attachChoices input[type="checkbox"]:checked')].map((b) => b.value);
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// ---------------------------------------------------------------------------
 // Form
 
 const CONFIDENCE_LABEL = { medium: "inferred — check", low: "guess — check" };
@@ -337,11 +504,39 @@ function renderForm(result) {
     detail: [s.name && s.address && s.name, s.contactName].filter(Boolean).join(" · "),
   }), "New site");
 
+  renderAttachmentChoices();
+
   document.getElementById("formError").hidden = true;
   const button = document.getElementById("createBtn");
   button.disabled = false;
   button.textContent = "Create job in Fergus";
   show("jobForm");
+}
+
+function renderAttachmentChoices() {
+  const atts = emailAttachments();
+  document.getElementById("attachFieldset").hidden = atts.length === 0;
+  document.getElementById("attachChoices").replaceChildren(
+    ...atts.map((att) => {
+      const label = document.createElement("label");
+      label.className = "choice";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.value = att.key;
+      box.checked = !att.problem;
+      box.disabled = Boolean(att.problem);
+      const text = document.createElement("span");
+      const main = document.createElement("span");
+      main.className = "attach-name";
+      main.textContent = att.name;
+      const detail = document.createElement("div");
+      detail.className = "choice-detail";
+      detail.textContent = att.problem || formatSize(att.size);
+      text.append(main, detail);
+      label.append(box, text);
+      return label;
+    })
+  );
 }
 
 function fillSelect(name, options, selected) {

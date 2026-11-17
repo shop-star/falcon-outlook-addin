@@ -33,6 +33,13 @@
       <p id="doneDetail" class="muted"></p>
       <p><a id="jobLink" href="#" target="_blank" rel="noopener">Open in Fergus</a></p>
       <p id="categoryNote" class="muted small" hidden></p>
+
+      <div id="attachView" hidden>
+        <p class="section-label">Attachments</p>
+        <ul id="attachList" class="attach-list"></ul>
+        <p id="attachSummary" class="muted small" role="status" aria-live="polite"></p>
+        <button id="copyAttachBtn" type="button" hidden>Copy to Fergus</button>
+      </div>
     </section>
 
     <form id="jobForm" hidden novalidate>
@@ -101,6 +108,12 @@
           <textarea name="description" rows="6"></textarea>
         </label>
         <p class="muted small">The original email (sender, date, subject and body) is added to the job as a note.</p>
+      </fieldset>
+
+      <fieldset id="attachFieldset" hidden>
+        <legend>Attachments</legend>
+        <p class="muted small">Ticked files are copied onto the job once it's created.</p>
+        <div id="attachChoices" class="choices"></div>
       </fieldset>
 
       <p id="formError" class="field-error" role="alert" hidden></p>

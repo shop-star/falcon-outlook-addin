@@ -1,6 +1,7 @@
-/* The two things the task pane asks for:
- *   analyze(email)  → prefilled form: Claude's extraction + Fergus match candidates
- *   create(request) → customer/site (if new) → job → email as a job note
+/* The things the task pane asks for:
+ *   analyze(email)          → prefilled form: Claude's extraction + Fergus match candidates
+ *   create(request)         → customer/site (if new) → job → email as a job note
+ *   addAttachment(request)  → one of the email's attachments copied onto that job
  */
 import { JOB_TYPES } from "./config.js";
 import { AppError, badRequest } from "./errors.js";
@@ -8,6 +9,9 @@ import { extractJobDetails } from "./extract.js";
 import { findCandidates } from "./match.js";
 
 const MAX_BODY_CHARS = 200_000;
+// Outlook itself won't attach much more than this, and it keeps a request
+// (base64 adds a third) well inside what a Worker accepts.
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 export class JobService {
   constructor({ config, fergus, anthropic, store }) {
@@ -137,6 +141,36 @@ export class JobService {
     return { status: "created", job: publicJob(record) };
   }
 
+  // Attachments go one per request, after the job exists, so a big email
+  // never has to fit in one request and one bad file doesn't stop the rest.
+  // Each copied attachment is recorded, so trying again (or a second person
+  // opening the email) never copies the same file twice.
+  async addAttachment(raw) {
+    const req = validateAttachment(raw);
+    const id = req.internetMessageId;
+
+    let record = await this.store.get(id);
+    if (record?.status !== "done" || record.jobId == null) {
+      throw new AppError(409, "NO_JOB", "This email hasn't been turned into a Fergus job yet, so there's nothing to copy the attachment to.");
+    }
+    if (record.attachments?.[req.key]) return { status: "exists", job: publicJob(record) };
+
+    if (!(await this.store.acquire(id))) {
+      throw new AppError(409, "IN_PROGRESS", "Something else is being added to this job right now. Wait a moment and try again.");
+    }
+    try {
+      record = await this.store.get(id);
+      if (record.attachments?.[req.key]) return { status: "exists", job: publicJob(record) };
+      const uploaded = await this.fergus.uploadJobAttachment(record.jobId, req);
+      record = await this.store.update(id, {
+        attachments: { ...record.attachments, [req.key]: { name: req.name, fergusId: uploaded.id } },
+      });
+      return { status: "created", job: publicJob(record) };
+    } finally {
+      await this.store.release(id);
+    }
+  }
+
   jobUrl(job) {
     return this.config.fergus.jobUrlTemplate
       .replace("{jobId}", encodeURIComponent(job.id ?? ""))
@@ -153,6 +187,8 @@ function publicJob(record) {
     createdBy: record.createdBy || "",
     customerCreated: Boolean(record.customerCreated),
     siteCreated: Boolean(record.siteCreated),
+    // Keys (see attachmentKey in the task pane) of attachments already copied.
+    attachments: Object.keys(record.attachments || {}),
   };
 }
 
@@ -172,7 +208,7 @@ export function noteText(req, user) {
     `Date: ${e.receivedAt}`,
     `Subject: ${e.subject}`
   );
-  if (attachments.length) lines.push(`Attachments (in Outlook): ${attachments.join(", ")}`);
+  if (attachments.length) lines.push(`Attachments: ${attachments.join(", ")}`);
   lines.push("", e.bodyText.trim());
   return lines.join("\n");
 }
@@ -201,6 +237,37 @@ function validateEmail(e) {
       ? e.attachments.slice(0, 50).map((a) => ({ name: str(a?.name, 300), size: Number(a?.size) || 0, contentType: str(a?.contentType, 200) }))
       : [],
   };
+}
+
+function validateAttachment(raw) {
+  if (!raw || typeof raw !== "object") throw badRequest("Missing attachment details.");
+  const internetMessageId = str(raw.internetMessageId, 1000);
+  const key = str(raw.key, 400);
+  const name = str(raw.name, 300).replace(/[\\/\u0000-\u001f]/g, "_");
+  if (!internetMessageId || !key || !name) throw badRequest("Missing attachment details.");
+  if (typeof raw.contentBase64 !== "string" || !raw.contentBase64) throw badRequest(`"${name}" came through empty.`);
+  // Checked before decoding: 4 base64 characters are 3 bytes.
+  if (raw.contentBase64.length > Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4 + 4) throw tooLarge(name);
+  let bytes;
+  try {
+    bytes = base64ToBytes(raw.contentBase64);
+  } catch {
+    throw badRequest(`"${name}" couldn't be read.`);
+  }
+  if (bytes.length > MAX_ATTACHMENT_BYTES) throw tooLarge(name);
+  return { internetMessageId, key, name, contentType: str(raw.contentType, 200), bytes };
+}
+
+function tooLarge(name) {
+  const mb = Math.round(MAX_ATTACHMENT_BYTES / 1024 / 1024);
+  return new AppError(413, "ATTACHMENT_TOO_LARGE", `"${name}" is over ${mb} MB, too big to copy. Save it from Outlook and add it in Fergus instead.`);
+}
+
+function base64ToBytes(b64) {
+  const binary = atob(b64.replace(/\s/g, ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 function validAddress(a) {
