@@ -91,7 +91,7 @@ test("create makes customer, site, job and note, then is idempotent", async () =
   assert.equal(note.entityId, first.job.id);
   assert.match(note.text, /Group: Decking/);
   assert.match(note.text, /From: Sam Builder <sam@builders\.example\.com>/);
-  assert.match(note.text, /Attachments \(in Outlook\): deck-plan\.pdf/);
+  assert.match(note.text, /Attachments: deck-plan\.pdf/);
 
   const again = await service.create(newJobRequest(), {});
   assert.equal(again.status, "exists");
@@ -264,4 +264,93 @@ test("HTTP: missing settings give a clear error", async () => {
   const res = await handle(new Request("https://worker.test/api/health"), {});
   assert.equal(res.status, 500);
   assert.equal((await res.json()).error.code, "MISCONFIGURED");
+});
+
+// ---------------------------------------------------------------------------
+// Attachments
+
+function attachmentRequest(overrides = {}) {
+  return {
+    internetMessageId: sampleEmail.internetMessageId,
+    key: "deck-plan.pdf|120000",
+    name: "deck-plan.pdf",
+    contentType: "application/pdf",
+    contentBase64: Buffer.from("%PDF-1.7 pretend plan").toString("base64"),
+    ...overrides,
+  };
+}
+
+test("an attachment is uploaded to the job once, as multipart", async () => {
+  const { service, fergusFake } = await setup();
+  const created = await service.create(newJobRequest(), {});
+  assert.deepEqual(created.job.attachments, []);
+
+  const first = await service.addAttachment(attachmentRequest());
+  assert.equal(first.status, "created");
+  assert.deepEqual(first.job.attachments, ["deck-plan.pdf|120000"]);
+
+  const uploads = fergusFake.calls.filter((c) => c.path === "/attachments");
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].body.entityType, "job");
+  assert.equal(uploads[0].body.entityTypeId, String(created.job.id));
+  assert.deepEqual(uploads[0].body.file, { name: "deck-plan.pdf", type: "application/pdf", text: "%PDF-1.7 pretend plan" });
+
+  // Trying again, or reopening the pane, doesn't copy it a second time.
+  const again = await service.addAttachment(attachmentRequest());
+  assert.equal(again.status, "exists");
+  assert.equal(fergusFake.calls.filter((c) => c.path === "/attachments").length, 1);
+
+  // The job as the pane sees it on reopening lists what's been copied.
+  const reopened = await service.analyze(sampleEmail);
+  assert.deepEqual(reopened.job.attachments, ["deck-plan.pdf|120000"]);
+});
+
+test("an attachment needs the job to exist first", async () => {
+  const { service, fergusFake } = await setup();
+  await assert.rejects(service.addAttachment(attachmentRequest()), (err) => err.code === "NO_JOB" && err.status === 409);
+  assert.equal(fergusFake.calls.length, 0);
+});
+
+test("a failed upload isn't recorded, so trying again copies it", async () => {
+  const { service, fergusFake } = await setup({
+    fergusData: { failures: { "POST /attachments": [{ status: 422, body: { message: "File type not allowed" } }] } },
+  });
+  await service.create(newJobRequest(), {});
+
+  await assert.rejects(service.addAttachment(attachmentRequest()), (err) => err.code === "FERGUS_VALIDATION" && /File type not allowed/.test(err.message));
+  const retry = await service.addAttachment(attachmentRequest());
+  assert.equal(retry.status, "created");
+  assert.equal(fergusFake.calls.filter((c) => c.path === "/attachments").length, 2);
+});
+
+test("oversized or malformed attachments are refused before Fergus", async () => {
+  const { service, fergusFake } = await setup();
+  await service.create(newJobRequest(), {});
+  const before = fergusFake.calls.length;
+
+  await assert.rejects(
+    service.addAttachment(attachmentRequest({ contentBase64: "A".repeat(36 * 1024 * 1024) })),
+    (err) => err.code === "ATTACHMENT_TOO_LARGE" && err.status === 413
+  );
+  await assert.rejects(service.addAttachment(attachmentRequest({ contentBase64: "" })), (err) => err.code === "BAD_REQUEST");
+  await assert.rejects(service.addAttachment(attachmentRequest({ contentBase64: "not base64!" })), (err) => err.code === "BAD_REQUEST");
+  await assert.rejects(service.addAttachment(attachmentRequest({ key: "" })), (err) => err.code === "BAD_REQUEST");
+  assert.equal(fergusFake.calls.length, before);
+});
+
+test("HTTP: attachments route takes a body bigger than an email's limit", async () => {
+  const { config, service } = await setup();
+  await service.create(newJobRequest(), {});
+  const handle = createHandler(() => ({ config, service, authenticate: async () => ({ name: "Pat" }) }));
+
+  const bytes = Buffer.alloc(3 * 1024 * 1024, 7);
+  const res = await handle(
+    new Request("https://worker.test/api/jobs/attachments", {
+      method: "POST",
+      body: JSON.stringify(attachmentRequest({ contentBase64: bytes.toString("base64") })),
+    }),
+    {}
+  );
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).status, "created");
 });

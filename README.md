@@ -79,7 +79,8 @@ the web this may sit under **Apps** or the **…** menu).
 1. The task pane reads the open email with Office.js — subject, body as
    plain text, sender, received time, attachment names and the email's
    `internetMessageId` — and POSTs it to the backend (`/api/analyze`).
-   Attachment *contents* are never sent.
+   Attachment *contents* are never sent to Claude; they're only read in
+   step 5, to copy them to Fergus.
 2. The backend asks Claude to extract customer name, company, contact name,
    phone, email, site address, a job title and description, and a
    suggested group, each with a confidence (high / medium / low / none).
@@ -97,7 +98,18 @@ the web this may sit under **Apps** or the **…** menu).
    subject, attachment names, body, and the chosen group) as a job note,
    and returns the job number and link. The pane then tags the email
    **Fergus job created**.
-5. The backend records `internetMessageId → Fergus job` in
+5. The form lists the email's attachments with a tick box each (inline
+   images such as signature logos are left out). Once the job exists, the
+   pane reads each ticked file with Office.js and sends it, one per request,
+   to `/api/jobs/attachments`, which uploads it to Fergus
+   (`POST /attachments`, multipart, `entityType` `job`, `entityTypeId` the
+   job ID). An attached email is uploaded as a `.eml` file. Files over
+   25 MB and links to cloud files can't be copied and say so. Each file shows
+   its result; a failed one can be ticked and tried again. The backend
+   records which attachments are already on the job, so trying again (or
+   reopening the email later, which offers any not yet copied) never copies
+   the same file twice.
+6. The backend records `internetMessageId → Fergus job` in
    a Cloudflare D1 database. Opening the pane on an email that's
    already been actioned — by anyone, on any device — shows that job
    instead of the form. If a create fails part-way (e.g. Fergus rate

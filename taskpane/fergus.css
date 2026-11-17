@@ -113,3 +113,14 @@ button.wide { width: 100%; padding: 8px; }
 button:disabled { opacity: 0.6; cursor: default; }
 
 .field-error { color: var(--error-text); margin: 0 0 8px; }
+
+.section-label { font-weight: 600; margin: 16px 0 4px; }
+.attach-list { list-style: none; padding: 0; margin: 0 0 8px; }
+.attach-list li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-top: 1px solid var(--border); }
+.attach-list li:first-child { border-top: none; }
+.attach-list label { margin: 0; display: flex; gap: 6px; align-items: baseline; flex: 1; min-width: 0; font-size: 13px; }
+.attach-name { overflow-wrap: anywhere; }
+.attach-status { font-size: 12px; color: var(--muted); flex: none; text-align: right; }
+.attach-status.ok { color: var(--ok); }
+.attach-status.failed { color: var(--error-text); }
+.attach-list input { width: auto; flex: none; }

@@ -9,7 +9,7 @@ export function fakeFergus({ customers = [], sites = [], failures = {} } = {}) {
   async function fetchImpl(url, init = {}) {
     const { pathname, searchParams } = new URL(url);
     const method = init.method || "GET";
-    const body = init.body ? JSON.parse(init.body) : undefined;
+    const body = init.body instanceof FormData ? await formFields(init.body) : init.body ? JSON.parse(init.body) : undefined;
     calls.push({ method, path: pathname, query: Object.fromEntries(searchParams), body, auth: init.headers?.Authorization });
 
     const key = `${method} ${pathname}`;
@@ -40,6 +40,7 @@ export function fakeFergus({ customers = [], sites = [], failures = {} } = {}) {
       }
       case "POST /notes":
       case "POST /calendarEvents":
+      case "POST /attachments":
         return json({ data: { id: nextId++, ...body } }, 201);
       default:
         return json({ message: "not found" }, 404);
@@ -47,6 +48,15 @@ export function fakeFergus({ customers = [], sites = [], failures = {} } = {}) {
   }
 
   return { fetchImpl, calls };
+}
+
+// Multipart fields as plain values; a file becomes { name, type, text }.
+async function formFields(form) {
+  const out = {};
+  for (const [key, value] of form) {
+    out[key] = typeof value === "string" ? value : { name: value.name, type: value.type, text: await value.text() };
+  }
+  return out;
 }
 
 export function fakeAnthropic(extraction) {
