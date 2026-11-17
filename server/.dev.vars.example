@@ -6,5 +6,5 @@ FERGUS_GROUPS=             # comma-separated, exactly as named in Fergus
 AUTH_DISABLED=true         # local testing ONLY — skips Microsoft sign-in
 
 # Optional
-# FERGUS_JOB_URL_TEMPLATE=https://app.fergus.com/jobs/view/{jobId}
+# FERGUS_JOB_URL_TEMPLATE=https://app.fergus.com/jobs/view/{jobId}/summary
 # ANTHROPIC_MODEL=claude-opus-5-5
