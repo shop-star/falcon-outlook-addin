@@ -5,7 +5,7 @@
  *   GET  /customers?filterSearchText=…     POST /customers
  *   GET  /sites?filterSearchText=…         POST /sites
  *   POST /jobs                             POST /notes  (entityName "job")
- *   POST /attachments  (multipart; entityType "job", entityTypeId — see uploadJobAttachment)
+ *   POST /attachments  (multipart: entityType "job", entityId, file)
  *   POST /calendarEvents  (public holidays — see createCalendarEvent)
  * Lists come back as { data: [...], paging: {...} } and single records as
  * { data: {...} }; unwrap() tolerates either that or a bare object, since
@@ -122,7 +122,7 @@ export class FergusClient {
   async uploadJobAttachment(jobId, { name, contentType, bytes }) {
     const form = new FormData();
     form.append("entityType", "job");
-    form.append("entityTypeId", String(jobId));
+    form.append("entityId", String(jobId));
     form.append("file", new Blob([bytes], { type: contentType || "application/octet-stream" }), name);
     const res = await this.request("POST", "/attachments", { form, action: `copying the attachment "${name}" to the job` });
     const attachment = unwrap(res);
