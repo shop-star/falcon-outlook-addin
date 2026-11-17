@@ -236,15 +236,28 @@ function imageType(a) {
   return CLAUDE_IMAGE_TYPES[(a.name || "").split(".").pop().toLowerCase()] || "";
 }
 
+// Images left out before reaching the server, and why, for the form's
+// warnings: { name, reason }.
+let imagesSkippedHere = [];
+
 // The images to show Claude, within its limits, in the email's order.
+// Only image-looking files count: a PDF isn't "skipped".
 function claudeImages() {
   const picked = [];
+  imagesSkippedHere = [];
   let total = 0;
   for (const att of emailAttachments()) {
-    if (picked.length >= MAX_CLAUDE_IMAGES) break;
-    if (!imageType(att) || att.size > MAX_CLAUDE_IMAGE_BYTES || total + att.size > MAX_CLAUDE_IMAGES_TOTAL) continue;
-    total += att.size;
-    picked.push(att);
+    const looksLikeImage = /^image\//i.test(att.contentType) || imageType(att);
+    if (!looksLikeImage) continue;
+    const skip = (reason) => imagesSkippedHere.push({ name: att.name, reason });
+    if (!imageType(att)) skip("Claude can't read this type of image");
+    else if (picked.length >= MAX_CLAUDE_IMAGES) skip(`only the first ${MAX_CLAUDE_IMAGES} images are read`);
+    else if (att.size > MAX_CLAUDE_IMAGE_BYTES) skip("it's too large");
+    else if (total + att.size > MAX_CLAUDE_IMAGES_TOTAL) skip("the email's images are too large in total");
+    else {
+      total += att.size;
+      picked.push(att);
+    }
   }
   return picked;
 }
@@ -256,8 +269,8 @@ async function readClaudeImages(atts) {
     try {
       const c = await readAttachment(att);
       read.push({ att, content: { name: c.name, contentType: imageType(att), contentBase64: c.contentBase64, inline: att.inline } });
-    } catch {
-      // skip it
+    } catch (err) {
+      imagesSkippedHere.push({ name: att.name, reason: err.message || "Outlook couldn't read it" });
     }
   }
   return read;
@@ -280,7 +293,7 @@ function readAttachmentFromOutlook(att) {
   return new Promise((resolve, reject) => {
     item.getAttachmentContentAsync(att.id, (result) => {
       if (result.status !== Office.AsyncResultStatus.Succeeded) {
-        reject(uiError("Outlook couldn't read it."));
+        reject(uiError(`Outlook couldn't read it${result.error?.message ? ` (${result.error.message})` : ""}.`));
         return;
       }
       const { format, content } = result.value;
@@ -528,6 +541,17 @@ function renderForm(result) {
   };
   if (result.extractionError) warn(`${result.extractionError.message} The form is blank — fill it in from the email.`);
   if (result.searchError) warn(`Couldn't search Fergus for existing customers and sites: ${result.searchError.message}`);
+  // Say which images Claude saw, so a missed screenshot is obvious.
+  const imagesRead = result.images?.read || [];
+  for (const { name, reason } of [...imagesSkippedHere, ...(result.images?.skipped || [])]) {
+    warn(`Claude didn't see the image "${name}": ${reason.replace(/\.$/, "")}. Check it yourself for customer details.`);
+  }
+  if (imagesRead.length) {
+    const p = document.createElement("p");
+    p.className = "muted small";
+    p.textContent = `Claude read ${imagesRead.length === 1 ? "the image" : `${imagesRead.length} images`}: ${imagesRead.join(", ")}.`;
+    warnings.append(p);
+  }
   if (result.partial?.customerId || result.partial?.siteId || result.partial?.jobId) {
     warn("An earlier attempt for this email stopped part-way. Whatever it already created in Fergus will be reused rather than duplicated.");
   }
