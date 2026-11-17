@@ -468,3 +468,37 @@ test("making another job reuses nothing from the first, even existing records pi
   const jobs = fergusFake.calls.filter((c) => c.path === "/jobs").map((c) => [c.body.customerId, c.body.siteId]);
   assert.deepEqual(jobs, [[5, 9], [6, 9]]);
 });
+
+// ---------------------------------------------------------------------------
+// Placeholder site when the email gives no address
+
+test("'site unknown' creates a placeholder site with the address Unknown", async () => {
+  const { service, fergusFake } = await setup();
+  const result = await service.create(
+    newJobRequest({ site: { unknown: true, contactName: "Mere Tane", phone: "027 555 1234", email: "" } }),
+    { name: "Pat" }
+  );
+  assert.equal(result.status, "created");
+  assert.equal(result.job.siteCreated, true);
+  assert.equal(result.job.siteUnknown, true);
+
+  const site = fergusFake.calls.find((c) => c.method === "POST" && c.path === "/sites").body;
+  assert.deepEqual(site.siteAddress, { address1: "Unknown" });
+  assert.equal(site.defaultContact.firstName, "Mere");
+  assert.deepEqual(site.defaultContact.contactItems, [{ contactType: "mobile", contactValue: "027 555 1234" }]);
+
+  const note = fergusFake.calls.find((c) => c.path === "/notes").body;
+  assert.match(note.text, /Site: not known yet/);
+});
+
+test("'site unknown' with no contact still gives Fergus a contact name", async () => {
+  const { service, fergusFake } = await setup();
+  await service.create(newJobRequest({ site: { unknown: true } }), {});
+  const site = fergusFake.calls.find((c) => c.path === "/sites").body;
+  assert.equal(site.defaultContact.firstName, "Unknown");
+});
+
+test("an ordinary new site still needs a street address", async () => {
+  const { service } = await setup();
+  await assert.rejects(service.create(newJobRequest({ site: { new: { address: {} } } }), {}), /street address/);
+});

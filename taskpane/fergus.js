@@ -162,8 +162,9 @@ async function showDone(job, created, toCopy = null) {
 
   let detail = "";
   if (created) {
-    const made = [job.customerCreated && "customer", job.siteCreated && "site"].filter(Boolean);
+    const made = [job.customerCreated && "customer", job.siteCreated && (job.siteUnknown ? "placeholder site" : "site")].filter(Boolean);
     detail = made.length ? `Also created a new ${made.join(" and ")}. The email was added as a job note.` : "The email was added as a job note.";
+    if (job.siteUnknown) detail += ' The site\'s address is "Unknown": update it in Fergus once you know it.';
   } else {
     const when = job.createdAt ? new Date(job.createdAt).toLocaleString() : "";
     detail = ["This email was already turned into a job", when && `on ${when}`, job.createdBy && `by ${job.createdBy}`].filter(Boolean).join(" ") + ".";
@@ -627,10 +628,16 @@ function renderForm(result) {
 
   const sites = result.candidates.sites;
   const strongSite = sites.find((s) => s.score >= 3);
-  renderChoices("site", sites, strongSite?.id, (s) => ({
+  // With no address in the email, a placeholder site is the likely choice.
+  const siteKnown = Boolean(site.address1) && site.confidence !== "none";
+  renderChoices("site", sites, strongSite?.id ?? (siteKnown ? null : "unknown"), (s) => ({
     main: s.address || s.name || "(no address)",
     detail: [s.name && s.address && s.name, s.contactName].filter(Boolean).join(" · "),
-  }), "New site");
+  }), "New site", {
+    value: "unknown",
+    main: "Site unknown",
+    detail: 'Creates a site with the address "Unknown", to update in Fergus later.',
+  });
 
   renderAttachmentChoices();
 
@@ -683,7 +690,8 @@ function fillSelect(name, options, selected) {
   );
 }
 
-function renderChoices(kind, records, selectedId, describe, newLabel) {
+// `extra`: one more option after "New …", e.g. a placeholder site.
+function renderChoices(kind, records, selectedId, describe, newLabel, extra = null) {
   const container = document.getElementById(`${kind}Choices`);
   const fields = document.getElementById(kind === "customer" ? "newCustomerFields" : "newSiteFields");
   const name = `${kind}Choice`;
@@ -718,6 +726,7 @@ function renderChoices(kind, records, selectedId, describe, newLabel) {
   });
   const isNew = selectedId == null;
   items.push(option("new", newLabel, records.length ? "" : "No matches found in Fergus.", isNew));
+  if (extra) items.push(option(extra.value, extra.main, extra.detail, selectedId === extra.value));
   container.replaceChildren(...items);
   fields.hidden = !isNew;
 }
@@ -756,7 +765,8 @@ function buildPayload() {
   if (customer.new && !customer.new.name) throw uiError("Enter the customer's name, or pick an existing customer.");
 
   const siteChoice = choice("site");
-  const site = siteChoice === "new" ? { new: { address, ...contact } } : { id: siteChoice };
+  const site =
+    siteChoice === "new" ? { new: { address, ...contact } } : siteChoice === "unknown" ? { unknown: true, ...contact } : { id: siteChoice };
   if (site.new && !address.address1) throw uiError("Enter the site's street address, or pick an existing site.");
 
   return {
