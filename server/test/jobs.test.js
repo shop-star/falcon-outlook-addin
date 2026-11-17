@@ -378,6 +378,21 @@ test("images go to Claude numbered, ahead of the email; unusable ones are droppe
   assert.match(content[4].text, /^<email>/);
 });
 
+test("the pane is told which images Claude read and why others were left out", async () => {
+  const { service, anthropic } = await setup();
+  const result = await service.analyze(sampleEmail, [
+    { name: "shot.jpg", contentType: "image/jpeg", contentBase64: `data:image/jpeg;base64,${png}` },
+    { name: "urlsafe.png", contentType: "image/png", contentBase64: "-_8" },
+    { name: "photo.heic", contentType: "image/heic", contentBase64: png },
+    { name: "bad.png", contentType: "image/png", contentBase64: "not base64!" },
+  ]);
+  assert.deepEqual(result.images.read, ["shot.jpg", "urlsafe.png"]);
+  assert.deepEqual(result.images.skipped.map((s) => s.name), ["photo.heic", "bad.png"]);
+  assert.match(result.images.skipped[0].reason, /image\/heic/);
+  const sources = anthropic.requests[0].messages[0].content.filter((b) => b.type === "image").map((b) => b.source.data);
+  assert.deepEqual(sources, [png, "+/8="]);
+});
+
 test("no images means a single text block, as before", async () => {
   const { service, anthropic } = await setup();
   await service.analyze(sampleEmail);

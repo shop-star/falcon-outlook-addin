@@ -34,7 +34,7 @@ export class JobService {
 
   async analyze(rawEmail, rawImages) {
     const email = validateEmail(rawEmail);
-    const images = validateImages(rawImages);
+    const { images, skipped } = validateImages(rawImages);
 
     const existing = await this.store.get(email.internetMessageId);
     if (existing?.status === "done") {
@@ -75,6 +75,8 @@ export class JobService {
       candidates,
       searchError,
       options: this.options(),
+      // Which images Claude was given, and which were left out and why.
+      images: { read: images.map((img) => img.name), skipped },
       // A previous attempt that stopped part-way: the pane says what will be reused.
       partial: existing ? { customerId: existing.customerId ?? null, siteId: existing.siteId ?? null, jobId: existing.jobId ?? null } : null,
     };
@@ -252,22 +254,42 @@ function validateEmail(e) {
   };
 }
 
-// Images that can't be used are dropped rather than refused: the email
-// can still be read without them.
-function validateImages(raw) {
-  if (!Array.isArray(raw)) return [];
+// Images that can't be used are left out rather than refused, since the
+// email can still be read without them; `skipped` says which and why, so
+// the pane can tell the person.
+export function validateImages(raw) {
   const images = [];
+  const skipped = [];
+  if (!Array.isArray(raw)) return { images, skipped };
   let total = 0;
-  for (const img of raw.slice(0, MAX_IMAGES)) {
+  raw.forEach((img, i) => {
+    const name = str(img?.name, 300) || "image";
+    const skip = (reason) => skipped.push({ name, reason });
+    if (i >= MAX_IMAGES) return skip(`only the first ${MAX_IMAGES} images are read`);
     const mediaType = str(img?.contentType, 100).toLowerCase().replace("image/jpg", "image/jpeg");
-    const data = typeof img?.contentBase64 === "string" ? img.contentBase64.replace(/\s/g, "") : "";
-    if (!CLAUDE_IMAGE_TYPES.includes(mediaType) || !data || data.length > MAX_IMAGE_BASE64) continue;
-    if (!/^[A-Za-z0-9+/]+=*$/.test(data)) continue;
-    if (total + data.length > MAX_IMAGES_BASE64_TOTAL) break;
+    if (!CLAUDE_IMAGE_TYPES.includes(mediaType)) return skip(`Claude can't read ${mediaType || "this type of"} images`);
+    const data = cleanBase64(img?.contentBase64);
+    if (!data) return skip("it came through empty or garbled");
+    if (data.length > MAX_IMAGE_BASE64) return skip("it's too large");
+    if (total + data.length > MAX_IMAGES_BASE64_TOTAL) return skip("the email's images are too large in total");
     total += data.length;
-    images.push({ name: str(img.name, 300) || "image", inline: Boolean(img.inline), mediaType, data });
-  }
-  return images;
+    images.push({ name, inline: Boolean(img.inline), mediaType, data });
+  });
+  return { images, skipped };
+}
+
+// Outlook hands back plain base64, but some versions wrap it in a data: URL
+// or use the URL-safe alphabet; accept those too.
+function cleanBase64(value) {
+  if (typeof value !== "string") return "";
+  const data = value
+    .replace(/^data:[^,]*,/, "")
+    .replace(/\s/g, "")
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .replace(/=+$/, "");
+  if (!data || !/^[A-Za-z0-9+/]+$/.test(data) || data.length % 4 === 1) return "";
+  return data + "=".repeat((4 - (data.length % 4)) % 4);
 }
 
 function validateAttachment(raw) {
