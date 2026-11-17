@@ -1,6 +1,10 @@
 /* The things the task pane asks for:
  *   analyze(email)          → prefilled form: Claude's extraction + Fergus match candidates
  *   create(request)         → customer/site (if new) → job → email as a job note
+ *
+ * An email normally makes one job. Asked to ("again"), it makes another:
+ * the earlier job is kept in the record's previousJobs and left as it is
+ * in Fergus.
  *   addAttachment(request)  → one of the email's attachments copied onto that job
  */
 import { JOB_TYPES } from "./config.js";
@@ -32,14 +36,19 @@ export class JobService {
     return { jobTypes: JOB_TYPES, defaultJobType, groups };
   }
 
-  async analyze(rawEmail, rawImages) {
+  // `again`: the email already made a job and the person wants another.
+  async analyze(rawEmail, rawImages, { again = false } = {}) {
     const email = validateEmail(rawEmail);
     const { images, skipped } = validateImages(rawImages);
 
-    const existing = await this.store.get(email.internetMessageId);
-    if (existing?.status === "done") {
+    let existing = await this.store.get(email.internetMessageId);
+    const done = existing?.status === "done";
+    if (done && !again) {
       return { status: "exists", job: this.publicJob(existing) };
     }
+    // The job a new one would sit alongside; nothing of it is reused.
+    const currentJob = done ? this.publicJob(existing) : null;
+    if (done) existing = null;
 
     let extraction = null;
     let extractionError = null;
@@ -75,6 +84,7 @@ export class JobService {
       candidates,
       searchError,
       options: this.options(),
+      currentJob,
       // Which images Claude was given, and which were left out and why.
       images: { read: images.map((img) => img.name), skipped },
       // A previous attempt that stopped part-way: the pane says what will be reused.
@@ -100,7 +110,13 @@ export class JobService {
     const id = req.email.internetMessageId;
     let record = await this.store.get(id);
     if (record?.status === "done") {
-      return { status: "exists", job: this.publicJob(record) };
+      // Another job from this email only when asked, and only alongside the
+      // job the person saw: a second click, or someone else making a job in
+      // the meantime, gets the newest job back instead of yet another.
+      if (req.alongsideJobId == null || String(record.jobId) !== String(req.alongsideJobId)) {
+        return { status: "exists", job: this.publicJob(record) };
+      }
+      record = await this.store.update(id, startAnotherJob(record));
     }
     const save = async (changes) => {
       record = await this.store.update(id, { status: "in_progress", subject: req.email.subject, ...changes });
@@ -183,14 +199,39 @@ export class JobService {
 
   // The link is built each time rather than stored, so a change to the
   // template also fixes jobs created before it.
-  publicJob(record) {
-    const url = this.config.fergus.jobUrlTemplate
-      .replace("{jobId}", encodeURIComponent(record.jobId ?? ""))
+  jobLink(jobId, jobNo) {
+    return this.config.fergus.jobUrlTemplate
+      .replace("{jobId}", encodeURIComponent(jobId ?? ""))
       // Fergus's web app addresses jobs by number. Should a job have come
       // back without one, its internal ID is the best guess left.
-      .replace("{jobNo}", encodeURIComponent(record.jobNo ?? record.jobId ?? ""));
-    return publicJobFields(record, url);
+      .replace("{jobNo}", encodeURIComponent(jobNo ?? jobId ?? ""));
   }
+
+  publicJob(record) {
+    return {
+      ...publicJobFields(record, this.jobLink(record.jobId, record.jobNo)),
+      previousJobs: (record.previousJobs || []).map((p) => ({ ...p, url: this.jobLink(p.jobId, p.jobNo) })),
+    };
+  }
+}
+
+// Clears the record's job so the create steps make a fresh customer (if
+// asked), site, job and note, and files the finished job under
+// previousJobs. Its copied attachments go with it: a new job starts empty.
+function startAnotherJob(record) {
+  const finished = { jobId: record.jobId, jobNo: record.jobNo ?? null, createdAt: record.updatedAt, createdBy: record.createdBy || "" };
+  return {
+    status: "in_progress",
+    previousJobs: [...(record.previousJobs || []), finished],
+    customerId: null,
+    siteId: null,
+    jobId: null,
+    jobNo: null,
+    noteAdded: false,
+    customerCreated: false,
+    siteCreated: false,
+    attachments: {},
+  };
 }
 
 function publicJobFields(record, url) {
@@ -382,5 +423,7 @@ export function validateCreate(raw, options) {
     if (!site.new.address.address1) throw badRequest("Enter the new site's street address, or pick an existing site.");
   }
 
-  return { email, jobType, group, title, description, customer, site };
+  // Set when making another job from an email that already has one.
+  const alongsideJobId = existingId(raw.alongsideJobId);
+  return { email, jobType, group, title, description, customer, site, alongsideJobId };
 }

@@ -1,8 +1,8 @@
 /* Cloudflare Worker: the HTTP API for the "Create Fergus job" task pane.
  *
  *   GET  /api/health    – liveness check, no auth
- *   POST /api/analyze   – { email, images } → extraction + match candidates, or the existing job
- *   POST /api/jobs      – { email, customer, site, jobType, group, title, description } → the job
+ *   POST /api/analyze   – { email, images, again } → extraction + match candidates, or the existing job
+ *   POST /api/jobs      – { email, customer, site, jobType, group, title, description, alongsideJobId? } → the job
  *   POST /api/jobs/attachments – { internetMessageId, key, name, contentType, contentBase64 }
  *                         → that attachment copied onto the email's job
  *   GET  /api/holidays      – recent public-holiday sync runs and the holidays added, no auth
@@ -54,7 +54,7 @@ function setup(env) {
 
 export function createHandler(getApp) {
   const routes = {
-    "POST /api/analyze": (service, body) => service.analyze(body.email, body.images),
+    "POST /api/analyze": (service, body) => service.analyze(body.email, body.images, { again: body.again === true }),
     "POST /api/jobs": (service, body, user) => service.create(body, user),
     "POST /api/jobs/attachments": (service, body) => service.addAttachment(body),
   };

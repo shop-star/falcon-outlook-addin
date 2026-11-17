@@ -421,3 +421,50 @@ test("HTTP: analyze accepts images bigger than an email-only request", async () 
   assert.equal(res.status, 200);
   assert.equal(anthropic.requests[0].messages[0].content[1].type, "image");
 });
+
+// ---------------------------------------------------------------------------
+// Another job from the same email
+
+test("an email that already made a job can make another, alongside it", async () => {
+  const { service, fergusFake } = await setup();
+  const first = (await service.create(newJobRequest(), { name: "Pat" })).job;
+  await service.addAttachment(attachmentRequest());
+
+  // Reopened: the existing job, unless another is asked for.
+  assert.equal((await service.analyze(sampleEmail)).status, "exists");
+  const again = await service.analyze(sampleEmail, [], { again: true });
+  assert.equal(again.status, "new");
+  assert.equal(again.currentJob.id, first.id);
+  assert.equal(again.partial, null);
+
+  const second = await service.create(newJobRequest({ alongsideJobId: first.id }), { name: "Pat" });
+  assert.equal(second.status, "created");
+  assert.notEqual(second.job.id, first.id);
+  assert.deepEqual(second.job.attachments, []);
+  assert.deepEqual(second.job.previousJobs.map((p) => [p.jobId, p.jobNo, p.url]), [[first.id, first.jobNo, first.url]]);
+
+  const posts = fergusFake.calls.filter((c) => c.method === "POST").map((c) => c.path);
+  assert.deepEqual(posts, ["/customers", "/sites", "/jobs", "/notes", "/attachments", "/customers", "/sites", "/jobs", "/notes"]);
+
+  // The same attachment can now be copied to the new job too.
+  assert.equal((await service.addAttachment(attachmentRequest())).status, "created");
+  assert.equal((await service.analyze(sampleEmail)).job.id, second.job.id);
+});
+
+test("a repeated 'make another' click doesn't make a third job", async () => {
+  const { service, fergusFake } = await setup();
+  const first = (await service.create(newJobRequest(), {})).job;
+  const second = await service.create(newJobRequest({ alongsideJobId: first.id }), {});
+  const repeat = await service.create(newJobRequest({ alongsideJobId: first.id }), {});
+  assert.equal(repeat.status, "exists");
+  assert.equal(repeat.job.id, second.job.id);
+  assert.equal(fergusFake.calls.filter((c) => c.path === "/jobs").length, 2);
+});
+
+test("making another job reuses nothing from the first, even existing records picked", async () => {
+  const { service, fergusFake } = await setup();
+  const first = (await service.create(newJobRequest({ customer: { id: "5" }, site: { id: "9" } }), {})).job;
+  await service.create(newJobRequest({ alongsideJobId: first.id, customer: { id: "6" }, site: { id: "9" } }), {});
+  const jobs = fergusFake.calls.filter((c) => c.path === "/jobs").map((c) => [c.body.customerId, c.body.siteId]);
+  assert.deepEqual(jobs, [[5, 9], [6, 9]]);
+});
