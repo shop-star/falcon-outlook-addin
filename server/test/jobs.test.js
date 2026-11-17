@@ -64,7 +64,7 @@ test("analyze returns Claude's extraction and ranks Fergus matches", async () =>
   const req = anthropic.requests[0];
   assert.equal(req.model, "claude-opus-5-5");
   assert.equal(req.output_config.format.type, "json_schema");
-  assert.match(req.messages[0].content, /<email>[\s\S]*Aroha Ngata[\s\S]*<\/email>/);
+  assert.match(req.messages[0].content.at(-1).text, /<email>[\s\S]*Aroha Ngata[\s\S]*<\/email>/);
 });
 
 test("create makes customer, site, job and note, then is idempotent", async () => {
@@ -353,4 +353,56 @@ test("HTTP: attachments route takes a body bigger than an email's limit", async 
   );
   assert.equal(res.status, 200);
   assert.equal((await res.json()).status, "created");
+});
+
+// ---------------------------------------------------------------------------
+// Images read by Claude
+
+const png = Buffer.from("fake png bytes").toString("base64");
+
+test("images go to Claude numbered, ahead of the email; unusable ones are dropped", async () => {
+  const { service, anthropic } = await setup();
+  await service.analyze(sampleEmail, [
+    { name: "Screenshot_Messages.jpg", contentType: "image/jpg", contentBase64: png },
+    { name: "image001.png", contentType: "image/png", contentBase64: png, inline: true },
+    { name: "photo.heic", contentType: "image/heic", contentBase64: png },
+    { name: "bad.png", contentType: "image/png", contentBase64: "not base64!" },
+    { name: "empty.png", contentType: "image/png", contentBase64: "" },
+  ]);
+
+  const content = anthropic.requests[0].messages[0].content;
+  assert.deepEqual(content.map((b) => b.type), ["text", "image", "text", "image", "text"]);
+  assert.equal(content[0].text, 'Image 1: "Screenshot_Messages.jpg", attached to the email.');
+  assert.deepEqual(content[1].source, { type: "base64", media_type: "image/jpeg", data: png });
+  assert.equal(content[2].text, 'Image 2: "image001.png", pasted into the email body.');
+  assert.match(content[4].text, /^<email>/);
+});
+
+test("no images means a single text block, as before", async () => {
+  const { service, anthropic } = await setup();
+  await service.analyze(sampleEmail);
+  assert.deepEqual(anthropic.requests[0].messages[0].content.map((b) => b.type), ["text"]);
+});
+
+test("staff domains and text-message screenshots are explained to Claude", async () => {
+  const { service, anthropic } = await setup();
+  await service.analyze(sampleEmail);
+  const config = loadConfig({ ...env, OWN_EMAIL_DOMAINS: "citytimber.co.nz,falconflooring.co.nz" });
+  assert.deepEqual(config.ownEmailDomains, ["citytimber.co.nz", "falconflooring.co.nz"]);
+  assert.match(anthropic.requests[0].system, /screenshot of a text-message conversation/);
+});
+
+test("HTTP: analyze accepts images bigger than an email-only request", async () => {
+  const { config, service, anthropic } = await setup();
+  const handle = createHandler(() => ({ config, service, authenticate: async () => ({ name: "Pat" }) }));
+  const big = Buffer.alloc(3 * 1024 * 1024, 1).toString("base64");
+  const res = await handle(
+    new Request("https://worker.test/api/analyze", {
+      method: "POST",
+      body: JSON.stringify({ email: sampleEmail, images: [{ name: "shot.png", contentType: "image/png", contentBase64: big }] }),
+    }),
+    {}
+  );
+  assert.equal(res.status, 200);
+  assert.equal(anthropic.requests[0].messages[0].content[1].type, "image");
 });

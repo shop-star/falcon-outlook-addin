@@ -12,6 +12,12 @@ const MAX_BODY_CHARS = 200_000;
 // Outlook itself won't attach much more than this, and it keeps a request
 // (base64 adds a third) well inside what a Worker accepts.
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+// Images sent to Claude with the email. Claude takes up to 10 MB of base64
+// per image; the total keeps the request a size a Worker handles easily.
+const CLAUDE_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+export const MAX_IMAGES = 8;
+const MAX_IMAGE_BASE64 = 10 * 1024 * 1024;
+export const MAX_IMAGES_BASE64_TOTAL = 20 * 1024 * 1024;
 
 export class JobService {
   constructor({ config, fergus, anthropic, store }) {
@@ -26,8 +32,9 @@ export class JobService {
     return { jobTypes: JOB_TYPES, defaultJobType, groups };
   }
 
-  async analyze(rawEmail) {
+  async analyze(rawEmail, rawImages) {
     const email = validateEmail(rawEmail);
+    const images = validateImages(rawImages);
 
     const existing = await this.store.get(email.internetMessageId);
     if (existing?.status === "done") {
@@ -44,7 +51,8 @@ export class JobService {
           groups: this.config.fergus.groups,
           ownDomains: this.config.ownEmailDomains,
         },
-        email
+        email,
+        images
       );
     } catch (err) {
       if (!(err instanceof AppError)) throw err;
@@ -242,6 +250,24 @@ function validateEmail(e) {
       ? e.attachments.slice(0, 50).map((a) => ({ name: str(a?.name, 300), size: Number(a?.size) || 0, contentType: str(a?.contentType, 200) }))
       : [],
   };
+}
+
+// Images that can't be used are dropped rather than refused: the email
+// can still be read without them.
+function validateImages(raw) {
+  if (!Array.isArray(raw)) return [];
+  const images = [];
+  let total = 0;
+  for (const img of raw.slice(0, MAX_IMAGES)) {
+    const mediaType = str(img?.contentType, 100).toLowerCase().replace("image/jpg", "image/jpeg");
+    const data = typeof img?.contentBase64 === "string" ? img.contentBase64.replace(/\s/g, "") : "";
+    if (!CLAUDE_IMAGE_TYPES.includes(mediaType) || !data || data.length > MAX_IMAGE_BASE64) continue;
+    if (!/^[A-Za-z0-9+/]+=*$/.test(data)) continue;
+    if (total + data.length > MAX_IMAGES_BASE64_TOTAL) break;
+    total += data.length;
+    images.push({ name: str(img.name, 300) || "image", inline: Boolean(img.inline), mediaType, data });
+  }
+  return images;
 }
 
 function validateAttachment(raw) {

@@ -1,7 +1,7 @@
 /* Cloudflare Worker: the HTTP API for the "Create Fergus job" task pane.
  *
  *   GET  /api/health    – liveness check, no auth
- *   POST /api/analyze   – { email } → extraction + match candidates, or the existing job
+ *   POST /api/analyze   – { email, images } → extraction + match candidates, or the existing job
  *   POST /api/jobs      – { email, customer, site, jobType, group, title, description } → the job
  *   POST /api/jobs/attachments – { internetMessageId, key, name, contentType, contentBase64 }
  *                         → that attachment copied onto the email's job
@@ -22,7 +22,7 @@ import { loadConfig } from "./config.js";
 import { AppError } from "./errors.js";
 import { FergusClient } from "./fergus.js";
 import { HolidaySync, holidayStatus, recordRun } from "./holiday-sync.js";
-import { JobService, MAX_ATTACHMENT_BYTES } from "./jobs.js";
+import { JobService, MAX_ATTACHMENT_BYTES, MAX_IMAGES_BASE64_TOTAL } from "./jobs.js";
 import { JobStore } from "./store.js";
 
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
@@ -54,11 +54,13 @@ function setup(env) {
 
 export function createHandler(getApp) {
   const routes = {
-    "POST /api/analyze": (service, body) => service.analyze(body.email),
+    "POST /api/analyze": (service, body) => service.analyze(body.email, body.images),
     "POST /api/jobs": (service, body, user) => service.create(body, user),
     "POST /api/jobs/attachments": (service, body) => service.addAttachment(body),
   };
   const limits = {
+    // The email plus the images Claude reads from it.
+    "POST /api/analyze": [MAX_REQUEST_BYTES + MAX_IMAGES_BASE64_TOTAL + 64 * 1024, "EMAIL_TOO_LARGE", "This email and its images are too large to send to the server."],
     "POST /api/jobs/attachments": [MAX_ATTACHMENT_REQUEST_BYTES, "ATTACHMENT_TOO_LARGE", "This attachment is too large to send to the server."],
   };
   const defaultLimit = [MAX_REQUEST_BYTES, "EMAIL_TOO_LARGE", "This email is too large to send to the server."];

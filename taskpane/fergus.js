@@ -7,6 +7,11 @@
  * creates the job and this pane tags the email with an Outlook category,
  * then copies the ticked attachments onto the job, one request each.
  *
+ * The email's images (attached, or pasted into the body) go to Claude with
+ * it, so details in a screenshot of a customer's text message are read too.
+ * Pasted-in images can be copied to the job like attachments; any Claude
+ * says are only logos or signature graphics start unticked.
+ *
  * Requests to the backend carry a Microsoft 365 access token obtained via
  * nested app authentication (MSAL's createNestablePublicClientApplication),
  * so only signed-in staff in our tenant can create jobs.
@@ -14,10 +19,19 @@
 
 const CATEGORY = "Fergus job created";
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024; // the backend's limit too
+// Images sent to Claude: types it reads, and limits matching the backend's.
+const CLAUDE_IMAGE_TYPES = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp" };
+const MAX_CLAUDE_IMAGES = 8;
+const MAX_CLAUDE_IMAGE_BYTES = 7 * 1024 * 1024; // 10 MB once base64
+const MAX_CLAUDE_IMAGES_TOTAL = 15 * 1024 * 1024;
+// Pasted-in images smaller than this are spacers and tiny icons.
+const MIN_INLINE_IMAGE_BYTES = 3 * 1024;
 const cfg = window.FERGUS_ADDIN_CONFIG || {};
 
 let email = null;
 let analysis = null;
+let decorativeKeys = new Set(); // images Claude called logos or signature graphics
+const contentCache = new Map(); // attachment key → content already read from Outlook
 let retryTimer = null;
 
 Office.onReady(() => {
@@ -82,13 +96,18 @@ async function start({ interactive = false } = {}) {
     showStatus("Reading this email…");
     if (interactive) await getToken({ interactive: true });
     email = await readEmail();
+    const sent = claudeImages();
+    if (sent.length) showStatus(`Reading this email's ${sent.length === 1 ? "image" : `${sent.length} images`}…`);
+    const images = await readClaudeImages(sent);
     showStatus("Reading the email with Claude and searching Fergus…");
-    const result = await api("/api/analyze", { email });
+    const result = await api("/api/analyze", { email, images: images.map((i) => i.content) });
     if (result.status === "exists") {
       showDone(result.job, false);
       return;
     }
     analysis = result;
+    // Claude numbers the images it was sent from 1.
+    decorativeKeys = new Set((result.extraction?.decorativeImages || []).map((n) => images[n - 1]?.att.key).filter(Boolean));
     renderForm(result);
   } catch (err) {
     showError(err);
@@ -197,17 +216,66 @@ function readEmail() {
 function emailAttachments() {
   const item = Office.context.mailbox.item;
   return (item?.attachments || [])
-    .filter((a) => !a.isInline)
+    // Of what's pasted into the body, only images are worth having, and not
+    // the tiniest (spacers, icons).
+    .filter((a) => !a.isInline || (imageType(a) && a.size >= MIN_INLINE_IMAGE_BYTES))
     .map((a) => {
       let problem = "";
       if (a.attachmentType === Office.MailboxEnums.AttachmentType.Cloud) problem = "A link to a cloud file — add it in Fergus by hand.";
       else if (a.size > MAX_ATTACHMENT_BYTES) problem = `Over ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB — save it from Outlook and add it in Fergus.`;
-      return { id: a.id, name: a.name || "attachment", size: a.size || 0, contentType: a.contentType || "", isItem: a.attachmentType === Office.MailboxEnums.AttachmentType.Item, key: `${a.name}|${a.size}`, problem };
+      return { id: a.id, name: a.name || "attachment", size: a.size || 0, contentType: a.contentType || imageType(a) || "", inline: Boolean(a.isInline), key: `${a.name}|${a.size}`, problem };
     });
 }
 
-// Base64 for a file; an attached email comes back as .eml text.
-function readAttachment(att) {
+// The image type Claude would read it as, or "" if it can't. Pasted-in
+// images often have no content type, so the extension decides.
+function imageType(a) {
+  const ct = (a.contentType || "").toLowerCase();
+  if (Object.values(CLAUDE_IMAGE_TYPES).includes(ct)) return ct;
+  if (ct === "image/jpg") return "image/jpeg";
+  return CLAUDE_IMAGE_TYPES[(a.name || "").split(".").pop().toLowerCase()] || "";
+}
+
+// The images to show Claude, within its limits, in the email's order.
+function claudeImages() {
+  const picked = [];
+  let total = 0;
+  for (const att of emailAttachments()) {
+    if (picked.length >= MAX_CLAUDE_IMAGES) break;
+    if (!imageType(att) || att.size > MAX_CLAUDE_IMAGE_BYTES || total + att.size > MAX_CLAUDE_IMAGES_TOTAL) continue;
+    total += att.size;
+    picked.push(att);
+  }
+  return picked;
+}
+
+// An image Outlook can't read is left out; the email is read without it.
+async function readClaudeImages(atts) {
+  const read = [];
+  for (const att of atts) {
+    try {
+      const c = await readAttachment(att);
+      read.push({ att, content: { name: c.name, contentType: imageType(att), contentBase64: c.contentBase64, inline: att.inline } });
+    } catch {
+      // skip it
+    }
+  }
+  return read;
+}
+
+// Base64 for a file; an attached email comes back as .eml text. Each is
+// read from Outlook once: images sent to Claude are reused when copied.
+async function readAttachment(att) {
+  if (!contentCache.has(att.key)) contentCache.set(att.key, readAttachmentFromOutlook(att));
+  try {
+    return await contentCache.get(att.key);
+  } catch (err) {
+    contentCache.delete(att.key);
+    throw err;
+  }
+}
+
+function readAttachmentFromOutlook(att) {
   const item = Office.context.mailbox.item;
   return new Promise((resolve, reject) => {
     item.getAttachmentContentAsync(att.id, (result) => {
@@ -327,7 +395,8 @@ function showAttachments(job, toCopy) {
     rows: atts.map((att) => {
       if (copied.has(att.key)) return { att, status: "copied", checked: false };
       if (att.problem) return { att, status: "skipped", message: att.problem, checked: false };
-      return { att, status: "pending", checked: toCopy ? toCopy.includes(att.key) : true };
+      // Reopened later, pasted-in images (often logos) wait to be ticked.
+      return { att, status: "pending", checked: toCopy ? toCopy.includes(att.key) : !att.inline };
     }),
   };
   document.getElementById("attachView").hidden = atts.length === 0;
@@ -356,7 +425,7 @@ function renderAttachments() {
       }
       const name = document.createElement("span");
       name.className = "attach-name";
-      name.textContent = `${row.att.name} (${formatSize(row.att.size)})`;
+      name.textContent = `${row.att.name} (${row.att.inline ? "in the email body, " : ""}${formatSize(row.att.size)})`;
       label.append(name);
       const status = document.createElement("span");
       status.className = `attach-status ${row.status === "copied" ? "ok" : row.status === "failed" ? "failed" : ""}`;
@@ -523,7 +592,8 @@ function renderAttachmentChoices() {
       const box = document.createElement("input");
       box.type = "checkbox";
       box.value = att.key;
-      box.checked = !att.problem;
+      const decorative = decorativeKeys.has(att.key);
+      box.checked = !att.problem && !decorative;
       box.disabled = Boolean(att.problem);
       const text = document.createElement("span");
       const main = document.createElement("span");
@@ -531,7 +601,9 @@ function renderAttachmentChoices() {
       main.textContent = att.name;
       const detail = document.createElement("div");
       detail.className = "choice-detail";
-      detail.textContent = att.problem || formatSize(att.size);
+      detail.textContent =
+        att.problem ||
+        [att.inline && "In the email body", formatSize(att.size), decorative && "looks like a logo or signature image"].filter(Boolean).join(" · ");
       text.append(main, detail);
       label.append(box, text);
       return label;

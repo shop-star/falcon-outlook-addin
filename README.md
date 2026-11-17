@@ -79,13 +79,17 @@ the web this may sit under **Apps** or the **…** menu).
 1. The task pane reads the open email with Office.js — subject, body as
    plain text, sender, received time, attachment names and the email's
    `internetMessageId` — and POSTs it to the backend (`/api/analyze`).
-   Attachment *contents* are never sent to Claude; they're only read in
-   step 5, to copy them to Fergus.
+   Images from the email go with it: attached JPEG/PNG/GIF/WebP images and
+   images pasted into the body (up to 8 images, 7 MB each, 15 MB in all;
+   tiny spacers left out). Other attachments' contents are never sent to
+   Claude; they're only read in step 5, to copy them to Fergus.
 2. The backend asks Claude to extract customer name, company, contact name,
    phone, email, site address, a job title and description, and a
    suggested group, each with a confidence (high / medium / low / none).
-   Claude reads the whole body, so a forwarded email or a builder writing
-   for their client still yields the real customer and site. It then
+   Claude reads the whole body and the images, so a forwarded email, a
+   builder writing for their client, or a staff member's screenshot of a
+   customer's text message still yields the real customer and site. Staff
+   addresses (`OWN_EMAIL_DOMAINS`) are never taken as the customer. It then
    searches Fergus for existing customers (by email, phone, name and
    company) and sites (by street address and postcode).
 3. The pane shows an editable form. An existing customer is preselected
@@ -98,8 +102,9 @@ the web this may sit under **Apps** or the **…** menu).
    subject, attachment names, body, and the chosen group) as a job note,
    and returns the job number and link. The pane then tags the email
    **Fergus job created**.
-5. The form lists the email's attachments with a tick box each (inline
-   images such as signature logos are left out). Once the job exists, the
+5. The form lists the email's attachments, and images pasted into the
+   body, with a tick box each. Images Claude says are only logos or
+   signature graphics start unticked. Once the job exists, the
    pane reads each ticked file with Office.js and sends it, one per request,
    to `/api/jobs/attachments`, which uploads it to Fergus
    (`POST /attachments`, multipart, `entityType` `job`, `entityId` the
