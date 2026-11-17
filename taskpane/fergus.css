@@ -124,3 +124,4 @@ button:disabled { opacity: 0.6; cursor: default; }
 .attach-status.ok { color: var(--ok); }
 .attach-status.failed { color: var(--error-text); }
 .attach-list input { width: auto; flex: none; }
+.version { margin-top: 24px; text-align: center; }

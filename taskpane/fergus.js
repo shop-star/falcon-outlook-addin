@@ -39,6 +39,7 @@ const contentCache = new Map(); // attachment key → content already read from 
 let retryTimer = null;
 
 Office.onReady(() => {
+  showVersion();
   document.getElementById("retryBtn").addEventListener("click", () => start({ again: wantAnother }));
   document.getElementById("signInBtn").addEventListener("click", () => start({ interactive: true, again: wantAnother }));
   document.getElementById("anotherBtn").addEventListener("click", () => start({ again: true }));
@@ -46,6 +47,14 @@ Office.onReady(() => {
   document.getElementById("copyAttachBtn").addEventListener("click", () => copyAttachments());
   start();
 });
+
+// The deployed commit, so anyone can tell whether Outlook has cached an
+// old copy of this pane. Blank when run straight from the repo.
+function showVersion() {
+  const el = document.getElementById("version");
+  const v = el?.dataset.version || "";
+  if (/^[0-9a-f]{7,}$/.test(v)) el.textContent = `Version ${v.slice(0, 7)}`;
+}
 
 // ---------------------------------------------------------------------------
 // Views

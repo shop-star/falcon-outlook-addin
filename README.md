@@ -70,6 +70,12 @@ the web this may sit under **Apps** or the **…** menu).
 > Go → Go to Folder…), and reopen Outlook. If the old one is still there,
 > remove it from **Get Add-ins → My add-ins** (or the ⋯ menu → Get
 > Add-ins) on the Mac.
+>
+> **Which version is Outlook running?** The bottom of the "Create Fergus
+> job" pane shows "Version" and the first 7 characters of the commit it
+> was deployed from. If it doesn't match the latest commit on `main`,
+> Outlook is using a cached copy: clear it as above (on Windows, close
+> Outlook and delete `%LOCALAPPDATA%\Microsoft\Office\16.0\Wef`).
 
 
 ## Create Fergus job
