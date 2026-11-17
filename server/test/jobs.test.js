@@ -292,7 +292,7 @@ test("an attachment is uploaded to the job once, as multipart", async () => {
   const uploads = fergusFake.calls.filter((c) => c.path === "/attachments");
   assert.equal(uploads.length, 1);
   assert.equal(uploads[0].body.entityType, "job");
-  assert.equal(uploads[0].body.entityTypeId, String(created.job.id));
+  assert.equal(uploads[0].body.entityId, String(created.job.id));
   assert.deepEqual(uploads[0].body.file, { name: "deck-plan.pdf", type: "application/pdf", text: "%PDF-1.7 pretend plan" });
 
   // Trying again, or reopening the pane, doesn't copy it a second time.

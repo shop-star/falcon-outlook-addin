@@ -102,7 +102,7 @@ the web this may sit under **Apps** or the **…** menu).
    images such as signature logos are left out). Once the job exists, the
    pane reads each ticked file with Office.js and sends it, one per request,
    to `/api/jobs/attachments`, which uploads it to Fergus
-   (`POST /attachments`, multipart, `entityType` `job`, `entityTypeId` the
+   (`POST /attachments`, multipart, `entityType` `job`, `entityId` the
    job ID). An attached email is uploaded as a `.eml` file. Files over
    25 MB and links to cloud files can't be copied and say so. Each file shows
    its result; a failed one can be ticked and tried again. The backend
