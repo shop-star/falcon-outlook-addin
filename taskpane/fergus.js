@@ -30,13 +30,18 @@ const cfg = window.FERGUS_ADDIN_CONFIG || {};
 
 let email = null;
 let analysis = null;
+// Set when making another job from an email that already has one: that job,
+// which the new one sits alongside.
+let wantAnother = false;
+let alongsideJob = null;
 let decorativeKeys = new Set(); // images Claude called logos or signature graphics
 const contentCache = new Map(); // attachment key → content already read from Outlook
 let retryTimer = null;
 
 Office.onReady(() => {
-  document.getElementById("retryBtn").addEventListener("click", () => start());
-  document.getElementById("signInBtn").addEventListener("click", () => start({ interactive: true }));
+  document.getElementById("retryBtn").addEventListener("click", () => start({ again: wantAnother }));
+  document.getElementById("signInBtn").addEventListener("click", () => start({ interactive: true, again: wantAnother }));
+  document.getElementById("anotherBtn").addEventListener("click", () => start({ again: true }));
   document.getElementById("jobForm").addEventListener("submit", onSubmit);
   document.getElementById("copyAttachBtn").addEventListener("click", () => copyAttachments());
   start();
@@ -91,7 +96,8 @@ function countdown(button, label, seconds) {
 // ---------------------------------------------------------------------------
 // Flow
 
-async function start({ interactive = false } = {}) {
+async function start({ interactive = false, again = false } = {}) {
+  wantAnother = again;
   try {
     showStatus("Reading this email…");
     if (interactive) await getToken({ interactive: true });
@@ -100,12 +106,13 @@ async function start({ interactive = false } = {}) {
     if (sent.length) showStatus(`Reading this email's ${sent.length === 1 ? "image" : `${sent.length} images`}…`);
     const images = await readClaudeImages(sent);
     showStatus("Reading the email with Claude and searching Fergus…");
-    const result = await api("/api/analyze", { email, images: images.map((i) => i.content) });
+    const result = await api("/api/analyze", { email, images: images.map((i) => i.content), again });
     if (result.status === "exists") {
       showDone(result.job, false);
       return;
     }
     analysis = result;
+    alongsideJob = result.currentJob || null;
     // Claude numbers the images it was sent from 1.
     decorativeKeys = new Set((result.extraction?.decorativeImages || []).map((n) => images[n - 1]?.att.key).filter(Boolean));
     renderForm(result);
@@ -140,7 +147,7 @@ async function onSubmit(event) {
     // customer/site it already created, so trying again won't duplicate them.
     formError.textContent = err.message;
     formError.hidden = false;
-    countdown(button, "Create job in Fergus", err.retryAfter);
+    countdown(button, alongsideJob ? "Create another job in Fergus" : "Create job in Fergus", err.retryAfter);
   }
 }
 
@@ -148,6 +155,8 @@ async function onSubmit(event) {
 // Without it (reopening an email already actioned) any not yet copied are
 // listed with a button, rather than copied without anyone asking.
 async function showDone(job, created, toCopy = null) {
+  wantAnother = false;
+  alongsideJob = null;
   const label = job.jobNo ? `job ${job.jobNo}` : "a job";
   document.getElementById("doneHeading").textContent = created ? `Created ${label} in Fergus` : `Already in Fergus as ${label}`;
 
@@ -163,12 +172,10 @@ async function showDone(job, created, toCopy = null) {
 
   const link = document.getElementById("jobLink");
   link.href = job.url;
-  link.onclick = (e) => {
-    if (Office.context.requirements.isSetSupported("OpenBrowserWindowApi", "1.1")) {
-      e.preventDefault();
-      Office.context.ui.openBrowserWindow(job.url);
-    }
-  };
+  link.onclick = (e) => openJob(e, job.url);
+  showPreviousJobs(job.previousJobs || []);
+  // Offered only when reopening, not straight after making a job.
+  document.getElementById("anotherBtn").hidden = created;
   show("doneView");
   showAttachments(job, toCopy);
 
@@ -180,6 +187,30 @@ async function showDone(job, created, toCopy = null) {
       "create it once (Categorize → Manage categories), then reopen this pane to tag it.";
     note.hidden = false;
   }
+}
+
+function openJob(e, url) {
+  if (Office.context.requirements.isSetSupported("OpenBrowserWindowApi", "1.1")) {
+    e.preventDefault();
+    Office.context.ui.openBrowserWindow(url);
+  }
+}
+
+function showPreviousJobs(jobs) {
+  const p = document.getElementById("previousJobs");
+  p.hidden = jobs.length === 0;
+  if (!jobs.length) return;
+  const links = jobs.map((j) => {
+    const a = document.createElement("a");
+    a.href = j.url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = j.jobNo ? `job ${j.jobNo}` : "a job";
+    a.onclick = (e) => openJob(e, j.url);
+    return a;
+  });
+  p.replaceChildren(`Earlier ${jobs.length === 1 ? "job" : "jobs"} from this email: `);
+  links.forEach((a, i) => p.append(...(i ? [", ", a] : [a])));
 }
 
 // ---------------------------------------------------------------------------
@@ -552,6 +583,10 @@ function renderForm(result) {
     p.textContent = `Claude read ${imagesRead.length === 1 ? "the image" : `${imagesRead.length} images`}: ${imagesRead.join(", ")}.`;
     warnings.append(p);
   }
+  if (alongsideJob) {
+    const label = alongsideJob.jobNo ? `job ${alongsideJob.jobNo}` : "a job";
+    warn(`This email is already ${label} in Fergus. Creating will make a separate, new job; ${label} isn't changed.`);
+  }
   if (result.partial?.customerId || result.partial?.siteId || result.partial?.jobId) {
     warn("An earlier attempt for this email stopped part-way. Whatever it already created in Fergus will be reused rather than duplicated.");
   }
@@ -602,7 +637,7 @@ function renderForm(result) {
   document.getElementById("formError").hidden = true;
   const button = document.getElementById("createBtn");
   button.disabled = false;
-  button.textContent = "Create job in Fergus";
+  button.textContent = alongsideJob ? "Create another job in Fergus" : "Create job in Fergus";
   show("jobForm");
 }
 
@@ -732,5 +767,6 @@ function buildPayload() {
     group: getField("group"),
     title,
     description,
+    alongsideJobId: alongsideJob?.id ?? null,
   };
 }

@@ -120,6 +120,11 @@ the web this may sit under **Apps** or the **…** menu).
    instead of the form. If a create fails part-way (e.g. Fergus rate
    limits the note), trying again reuses the customer, site and job already
    created rather than duplicating them.
+7. To make a second job from the same email, **Create another job from
+   this email** (shown when reopening an actioned email) reruns the form.
+   Creating makes a separate job; the earlier one isn't changed, and is
+   listed under "Earlier jobs from this email". A repeated click returns
+   the new job rather than making a third.
 
 Fergus errors are shown in plain words: a rejected token, validation
 messages from Fergus, and rate limits (a short `Retry-After` is retried
