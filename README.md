@@ -96,7 +96,10 @@ the web this may sit under **Apps** or the **…** menu).
    only when it matched on email or phone, and an existing site only when
    street and postcode both match; otherwise **New customer** / **New
    site** is selected with the extracted details filled in. Fields Claude
-   inferred or guessed are flagged "check".
+   inferred or guessed are flagged "check". When the email gives no site
+   address, **Site unknown** is selected instead: it creates a placeholder
+   site with the address "Unknown" (the customer contact as its contact),
+   and the job note says the site needs updating in Fergus.
 4. **Create job in Fergus** (`/api/jobs`) creates the customer and site if
    new, creates the job (`isDraft: false`), adds the email (from, date,
    subject, attachment names, body, and the chosen group) as a job note,

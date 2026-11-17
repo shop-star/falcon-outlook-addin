@@ -15,6 +15,8 @@ import { findCandidates } from "./match.js";
 const MAX_BODY_CHARS = 200_000;
 // Outlook itself won't attach much more than this, and it keeps a request
 // (base64 adds a third) well inside what a Worker accepts.
+// What a placeholder site has where Fergus requires something.
+const UNKNOWN = "Unknown";
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 // Images sent to Claude with the email. Claude takes up to 10 MB of base64
 // per image; the total keeps the request a size a Worker handles easily.
@@ -144,7 +146,7 @@ export class JobService {
         contact: { name: s.contactName, email: s.email, phone: s.phone },
       });
       siteId = site.id;
-      await save({ siteId, siteCreated: true });
+      await save({ siteId, siteCreated: true, siteUnknown: req.site.unknown });
     }
 
     if (record?.jobId == null) {
@@ -230,6 +232,7 @@ function startAnotherJob(record) {
     noteAdded: false,
     customerCreated: false,
     siteCreated: false,
+    siteUnknown: false,
     attachments: {},
   };
 }
@@ -243,6 +246,7 @@ function publicJobFields(record, url) {
     createdBy: record.createdBy || "",
     customerCreated: Boolean(record.customerCreated),
     siteCreated: Boolean(record.siteCreated),
+    siteUnknown: Boolean(record.siteUnknown),
     // Keys (see attachmentKey in the task pane) of attachments already copied.
     attachments: Object.keys(record.attachments || {}),
   };
@@ -258,6 +262,7 @@ export function noteText(req, user) {
     `Created from email${user?.name ? ` by ${user.name}` : ""} (Outlook add-in)`,
   ];
   if (req.group) lines.push(`Group: ${req.group}`);
+  if (req.site.unknown) lines.push("Site: not known yet. A placeholder site was created with the address \"Unknown\"; update it once the address is known.");
   lines.push(
     "",
     `From: ${from}`,
@@ -410,8 +415,20 @@ export function validateCreate(raw, options) {
     if (!customer.new.name) throw badRequest("Enter the new customer's name, or pick an existing customer.");
   }
 
-  const site = { id: existingId(raw.site?.id), new: null };
-  if (site.id == null) {
+  const site = { id: existingId(raw.site?.id), new: null, unknown: false };
+  if (site.id == null && raw.site?.unknown === true) {
+    // No address to go on: a placeholder site, "Unknown" where Fergus needs
+    // a value, for someone to fill in in Fergus later.
+    const n = raw.site;
+    site.unknown = true;
+    site.new = {
+      name: "",
+      address: { ...validAddress({}), address1: UNKNOWN },
+      contactName: str(n.contactName, 300),
+      email: str(n.email, 300),
+      phone: str(n.phone, 100),
+    };
+  } else if (site.id == null) {
     const n = raw.site?.new || {};
     site.new = {
       name: str(n.name, 300),
