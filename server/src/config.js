@@ -40,7 +40,7 @@ export function loadConfig(env) {
       baseUrl: (env.FERGUS_BASE_URL || "https://api.fergus.com").replace(/\/+$/, ""),
       // Where a person opens a job in the Fergus web app. {jobId} and
       // {jobNo} are substituted. Check this against a real job's URL.
-      jobUrlTemplate: env.FERGUS_JOB_URL_TEMPLATE || "https://app.fergus.com/jobs/view/{jobId}/summary",
+      jobUrlTemplate: env.FERGUS_JOB_URL_TEMPLATE || "https://app.fergus.com/jobs/view/{jobNo}/summary",
       // Business-unit groups Claude may suggest from. Fergus's public API
       // exposes no groups endpoint, so this list is ours to keep in step
       // with the Fergus account.

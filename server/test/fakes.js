@@ -36,7 +36,8 @@ export function fakeFergus({ customers = [], sites = [], failures = {} } = {}) {
         return json({ data: { id: nextId++, ...body } }, 201);
       case "POST /jobs": {
         const id = nextId++;
-        return json({ data: { id, jobNo: `J${id}`, ...body } }, 201);
+        // A job number unlike the ID, as in Fergus, so tests can tell them apart.
+        return json({ data: { id, jobNo: id - 900, ...body } }, 201);
       }
       case "POST /notes":
       case "POST /calendarEvents":
