@@ -200,7 +200,7 @@ The non-secret settings live in `server/wrangler.jsonc` under `vars`:
 the customer), `FERGUS_DEFAULT_JOB_TYPE` (`Quote`, `Estimate` or `Charge
 Up`) and `ALLOWED_ORIGINS`. Optional extras, set in the dashboard:
 `FERGUS_JOB_URL_TEMPLATE` (job link, `{jobId}` / `{jobNo}` substituted;
-default `https://app.fergus.com/jobs/view/{jobId}`, so check it against a
+default `https://app.fergus.com/jobs/view/{jobId}/summary`, so check it against a
 real job) and `ANTHROPIC_MODEL` (default `claude-opus-5-5`). Settings
 added in the dashboard survive deploys (`keep_vars`).
 

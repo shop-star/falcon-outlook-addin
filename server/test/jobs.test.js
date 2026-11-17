@@ -73,7 +73,7 @@ test("create makes customer, site, job and note, then is idempotent", async () =
   const first = await service.create(newJobRequest(), { name: "Pat Office", email: "pat@example.com" });
   assert.equal(first.status, "created");
   assert.ok(first.job.jobNo.startsWith("J"));
-  assert.match(first.job.url, /^https:\/\/app\.fergus\.com\/jobs\/view\/\d+$/);
+  assert.match(first.job.url, /^https:\/\/app\.fergus\.com\/jobs\/view\/\d+\/summary$/);
 
   const posts = fergusFake.calls.filter((c) => c.method === "POST");
   assert.deepEqual(posts.map((c) => c.path), ["/customers", "/sites", "/jobs", "/notes"]);

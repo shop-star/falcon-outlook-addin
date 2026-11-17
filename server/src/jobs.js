@@ -31,7 +31,7 @@ export class JobService {
 
     const existing = await this.store.get(email.internetMessageId);
     if (existing?.status === "done") {
-      return { status: "exists", job: publicJob(existing) };
+      return { status: "exists", job: this.publicJob(existing) };
     }
 
     let extraction = null;
@@ -90,7 +90,7 @@ export class JobService {
     const id = req.email.internetMessageId;
     let record = await this.store.get(id);
     if (record?.status === "done") {
-      return { status: "exists", job: publicJob(record) };
+      return { status: "exists", job: this.publicJob(record) };
     }
     const save = async (changes) => {
       record = await this.store.update(id, { status: "in_progress", subject: req.email.subject, ...changes });
@@ -129,7 +129,7 @@ export class JobService {
         customerId: Number(customerId),
         siteId: Number(siteId),
       });
-      await save({ customerId, siteId, jobId: job.id, jobNo: job.jobNo, jobUrl: this.jobUrl(job) });
+      await save({ customerId, siteId, jobId: job.id, jobNo: job.jobNo });
     }
 
     if (!record.noteAdded) {
@@ -138,7 +138,7 @@ export class JobService {
     }
 
     record = await this.store.update(id, { status: "done", group: req.group, createdBy: user?.email || user?.name || "" });
-    return { status: "created", job: publicJob(record) };
+    return { status: "created", job: this.publicJob(record) };
   }
 
   // Attachments go one per request, after the job exists, so a big email
@@ -153,36 +153,39 @@ export class JobService {
     if (record?.status !== "done" || record.jobId == null) {
       throw new AppError(409, "NO_JOB", "This email hasn't been turned into a Fergus job yet, so there's nothing to copy the attachment to.");
     }
-    if (record.attachments?.[req.key]) return { status: "exists", job: publicJob(record) };
+    if (record.attachments?.[req.key]) return { status: "exists", job: this.publicJob(record) };
 
     if (!(await this.store.acquire(id))) {
       throw new AppError(409, "IN_PROGRESS", "Something else is being added to this job right now. Wait a moment and try again.");
     }
     try {
       record = await this.store.get(id);
-      if (record.attachments?.[req.key]) return { status: "exists", job: publicJob(record) };
+      if (record.attachments?.[req.key]) return { status: "exists", job: this.publicJob(record) };
       const uploaded = await this.fergus.uploadJobAttachment(record.jobId, req);
       record = await this.store.update(id, {
         attachments: { ...record.attachments, [req.key]: { name: req.name, fergusId: uploaded.id } },
       });
-      return { status: "created", job: publicJob(record) };
+      return { status: "created", job: this.publicJob(record) };
     } finally {
       await this.store.release(id);
     }
   }
 
-  jobUrl(job) {
-    return this.config.fergus.jobUrlTemplate
-      .replace("{jobId}", encodeURIComponent(job.id ?? ""))
-      .replace("{jobNo}", encodeURIComponent(job.jobNo ?? ""));
+  // The link is built each time rather than stored, so a change to the
+  // template also fixes jobs created before it.
+  publicJob(record) {
+    const url = this.config.fergus.jobUrlTemplate
+      .replace("{jobId}", encodeURIComponent(record.jobId ?? ""))
+      .replace("{jobNo}", encodeURIComponent(record.jobNo ?? ""));
+    return publicJobFields(record, url);
   }
 }
 
-function publicJob(record) {
+function publicJobFields(record, url) {
   return {
     id: record.jobId,
     jobNo: record.jobNo ?? null,
-    url: record.jobUrl,
+    url,
     createdAt: record.updatedAt,
     createdBy: record.createdBy || "",
     customerCreated: Boolean(record.customerCreated),
