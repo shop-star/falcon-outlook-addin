@@ -15,8 +15,13 @@ import { findCandidates } from "./match.js";
 const MAX_BODY_CHARS = 200_000;
 // Outlook itself won't attach much more than this, and it keeps a request
 // (base64 adds a third) well inside what a Worker accepts.
-// What a placeholder site has where Fergus requires something.
+// What a placeholder site has where Fergus requires something. Fergus
+// reuses an existing site with the same address, so each placeholder starts
+// with a one-off reference and is renamed to its job number once the job
+// exists ("Unknown – Job 80"): one site, and one site contact, per job.
 const UNKNOWN = "Unknown";
+const placeholderRef = () => `${UNKNOWN} (ref ${crypto.randomUUID().slice(0, 8)})`;
+const placeholderName = (jobNo) => `${UNKNOWN} – Job ${jobNo}`;
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 // Images sent to Claude with the email. Claude takes up to 10 MB of base64
 // per image; the total keeps the request a size a Worker handles easily.
@@ -138,15 +143,13 @@ export class JobService {
     }
 
     let siteId = record?.siteId ?? req.site.id;
+    const siteContact = req.site.new ? { name: req.site.new.contactName, email: req.site.new.email, phone: req.site.new.phone } : null;
     if (siteId == null) {
       const s = req.site.new;
-      const site = await this.fergus.createSite({
-        name: s.name,
-        address: s.address,
-        contact: { name: s.contactName, email: s.email, phone: s.phone },
-      });
+      const address = req.site.unknown ? { ...s.address, address1: placeholderRef() } : s.address;
+      const site = await this.fergus.createSite({ name: s.name, address, contact: siteContact });
       siteId = site.id;
-      await save({ siteId, siteCreated: true, siteUnknown: req.site.unknown });
+      await save({ siteId, siteCreated: true, siteUnknown: req.site.unknown, siteAddress1: req.site.unknown ? address.address1 : undefined });
     }
 
     if (record?.jobId == null) {
@@ -160,8 +163,22 @@ export class JobService {
       await save({ customerId, siteId, jobId: job.id, jobNo: job.jobNo });
     }
 
+    // The placeholder site gets the job number. If Fergus won't rename it,
+    // the job still goes ahead: the site keeps its one-off reference, which
+    // is still its own, and the pane says so.
+    if (record.siteUnknown && !record.siteRenamed && !record.siteRenameError) {
+      const address1 = placeholderName(record.jobNo ?? record.jobId);
+      try {
+        await this.fergus.updateSite(siteId, { address: { ...req.site.new.address, address1 }, contact: siteContact });
+        await save({ siteRenamed: true, siteAddress1: address1 });
+      } catch (err) {
+        if (!(err instanceof AppError)) throw err;
+        await save({ siteRenameError: err.message });
+      }
+    }
+
     if (!record.noteAdded) {
-      await this.fergus.addJobNote(record.jobId, noteText(req, user));
+      await this.fergus.addJobNote(record.jobId, noteText(req, user, record.siteAddress1));
       await save({ noteAdded: true });
     }
 
@@ -233,6 +250,9 @@ function startAnotherJob(record) {
     customerCreated: false,
     siteCreated: false,
     siteUnknown: false,
+    siteAddress1: null,
+    siteRenamed: false,
+    siteRenameError: null,
     attachments: {},
   };
 }
@@ -247,6 +267,10 @@ function publicJobFields(record, url) {
     customerCreated: Boolean(record.customerCreated),
     siteCreated: Boolean(record.siteCreated),
     siteUnknown: Boolean(record.siteUnknown),
+    // The placeholder site's address as it ended up, and why it couldn't be
+    // given the job number, if it couldn't.
+    siteAddress: record.siteUnknown ? record.siteAddress1 || null : null,
+    siteRenameError: record.siteUnknown ? record.siteRenameError || null : null,
     // Keys (see attachmentKey in the task pane) of attachments already copied.
     attachments: Object.keys(record.attachments || {}),
   };
@@ -254,7 +278,7 @@ function publicJobFields(record, url) {
 
 // Fergus's API has no way to set a job's group, so the note carries it
 // where whoever picks the job up will see it.
-export function noteText(req, user) {
+export function noteText(req, user, placeholderSite = UNKNOWN) {
   const e = req.email;
   const from = e.from.name ? `${e.from.name} <${e.from.address}>` : e.from.address;
   const attachments = e.attachments.map((a) => a.name).filter(Boolean);
@@ -262,7 +286,7 @@ export function noteText(req, user) {
     `Created from email${user?.name ? ` by ${user.name}` : ""} (Outlook add-in)`,
   ];
   if (req.group) lines.push(`Group: ${req.group}`);
-  if (req.site.unknown) lines.push("Site: not known yet. A placeholder site was created with the address \"Unknown\"; update it once the address is known.");
+  if (req.site.unknown) lines.push(`Site: not known yet. A placeholder site "${placeholderSite}" was created for this job; update its address once it's known.`);
   lines.push(
     "",
     `From: ${from}`,

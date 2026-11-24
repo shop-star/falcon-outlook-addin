@@ -104,8 +104,12 @@ the web this may sit under **Apps** or the **…** menu).
    site** is selected with the extracted details filled in. Fields Claude
    inferred or guessed are flagged "check". When the email gives no site
    address, **Site unknown** is selected instead: it creates a placeholder
-   site with the address "Unknown" (the customer contact as its contact),
-   and the job note says the site needs updating in Fergus.
+   site for that job alone (the customer contact as its contact), and the
+   job note says the site needs updating in Fergus. Fergus reuses a site
+   with the same address, so the placeholder is created as "Unknown (ref
+   …)" with a one-off reference and, once the job exists, renamed to
+   "Unknown – Job <number>" (`PUT /sites/{id}`). If the rename fails, the
+   job still goes ahead and the pane says the site kept its reference.
 4. **Create job in Fergus** (`/api/jobs`) creates the customer and site if
    new, creates the job (`isDraft: false`), adds the email (from, date,
    subject, attachment names, body, and the chosen group) as a job note,
