@@ -25,6 +25,9 @@ export function fakeFergus({ customers = [], sites = [], failures = {} } = {}) {
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
     const text = (searchParams.get("filterSearchText") || "").toLowerCase();
 
+    if (method === "PUT" && pathname.startsWith("/sites/")) {
+      return json({ data: { id: Number(pathname.split("/")[2]), ...body } });
+    }
     switch (key) {
       case "GET /customers":
         return json({ data: customers.filter((c) => JSON.stringify(c).toLowerCase().includes(text)), paging: {} });

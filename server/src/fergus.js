@@ -3,7 +3,7 @@
  * Endpoints and field names (https://api.fergus.com, Bearer personal access
  * token):
  *   GET  /customers?filterSearchText=…     POST /customers
- *   GET  /sites?filterSearchText=…         POST /sites
+ *   GET  /sites?filterSearchText=…         POST /sites   PUT /sites/{id}
  *   POST /jobs                             POST /notes  (entityName "job")
  *   POST /attachments  (multipart: entityType "job", entityId, file)
  *   POST /calendarEvents  (public holidays — see createCalendarEvent)
@@ -93,6 +93,18 @@ export class FergusClient {
     };
     if (name) body.name = name;
     const res = await this.request("POST", "/sites", { body, action: "creating the site" });
+    return normalizeSite(unwrap(res));
+  }
+
+  // Replaces the site's address and default contact (the same fields as
+  // createSite), e.g. to put the job number on a placeholder site.
+  async updateSite(siteId, { name, address, contact }) {
+    const body = {
+      siteAddress: toFergusAddress(address),
+      defaultContact: toFergusContact(contact),
+    };
+    if (name) body.name = name;
+    const res = await this.request("PUT", `/sites/${encodeURIComponent(siteId)}`, { body, action: "renaming the placeholder site" });
     return normalizeSite(unwrap(res));
   }
 

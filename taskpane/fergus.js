@@ -173,7 +173,10 @@ async function showDone(job, created, toCopy = null) {
   if (created) {
     const made = [job.customerCreated && "customer", job.siteCreated && (job.siteUnknown ? "placeholder site" : "site")].filter(Boolean);
     detail = made.length ? `Also created a new ${made.join(" and ")}. The email was added as a job note.` : "The email was added as a job note.";
-    if (job.siteUnknown) detail += ' The site\'s address is "Unknown": update it in Fergus once you know it.';
+    if (job.siteUnknown) {
+      detail += ` The site is "${job.siteAddress || "Unknown"}": update its address in Fergus once you know it.`;
+      if (job.siteRenameError) detail += ` (It couldn't be renamed to the job number: ${job.siteRenameError})`;
+    }
   } else {
     const when = job.createdAt ? new Date(job.createdAt).toLocaleString() : "";
     detail = ["This email was already turned into a job", when && `on ${when}`, job.createdBy && `by ${job.createdBy}`].filter(Boolean).join(" ") + ".";
@@ -645,7 +648,7 @@ function renderForm(result) {
   }), "New site", {
     value: "unknown",
     main: "Site unknown",
-    detail: 'Creates a site with the address "Unknown", to update in Fergus later.',
+    detail: 'Creates a site for this job named "Unknown – Job <number>", to update in Fergus later.',
   });
 
   renderAttachmentChoices();

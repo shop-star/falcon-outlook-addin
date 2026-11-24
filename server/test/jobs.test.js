@@ -472,7 +472,7 @@ test("making another job reuses nothing from the first, even existing records pi
 // ---------------------------------------------------------------------------
 // Placeholder site when the email gives no address
 
-test("'site unknown' creates a placeholder site with the address Unknown", async () => {
+test("'site unknown' makes a placeholder site of its own, named after the job", async () => {
   const { service, fergusFake } = await setup();
   const result = await service.create(
     newJobRequest({ site: { unknown: true, contactName: "Mere Tane", phone: "027 555 1234", email: "" } }),
@@ -481,14 +481,45 @@ test("'site unknown' creates a placeholder site with the address Unknown", async
   assert.equal(result.status, "created");
   assert.equal(result.job.siteCreated, true);
   assert.equal(result.job.siteUnknown, true);
+  assert.equal(result.job.siteAddress, `Unknown – Job ${result.job.jobNo}`);
+  assert.equal(result.job.siteRenameError, null);
 
-  const site = fergusFake.calls.find((c) => c.method === "POST" && c.path === "/sites").body;
-  assert.deepEqual(site.siteAddress, { address1: "Unknown" });
-  assert.equal(site.defaultContact.firstName, "Mere");
-  assert.deepEqual(site.defaultContact.contactItems, [{ contactType: "mobile", contactValue: "027 555 1234" }]);
+  // Created under a one-off reference, so Fergus can't match an existing site...
+  const created = fergusFake.calls.find((c) => c.method === "POST" && c.path === "/sites");
+  assert.match(created.body.siteAddress.address1, /^Unknown \(ref [0-9a-f]{8}\)$/);
+  assert.equal(created.body.defaultContact.firstName, "Mere");
+  assert.deepEqual(created.body.defaultContact.contactItems, [{ contactType: "mobile", contactValue: "027 555 1234" }]);
+
+  // ...then renamed to the job number, contact kept, before the note.
+  const order = fergusFake.calls.filter((c) => c.method !== "GET").map((c) => `${c.method} ${c.path.replace(/\d+$/, "{id}")}`);
+  assert.deepEqual(order, ["POST /customers", "POST /sites", "POST /jobs", "PUT /sites/{id}", "POST /notes"]);
+  const renamed = fergusFake.calls.find((c) => c.method === "PUT");
+  assert.equal(renamed.path, "/sites/1001"); // the fake's ids: customer 1000, then this site
+  assert.deepEqual(renamed.body.siteAddress, { address1: `Unknown – Job ${result.job.jobNo}` });
+  assert.equal(renamed.body.defaultContact.firstName, "Mere");
 
   const note = fergusFake.calls.find((c) => c.path === "/notes").body;
-  assert.match(note.text, /Site: not known yet/);
+  assert.match(note.text, new RegExp(`placeholder site "Unknown – Job ${result.job.jobNo}"`));
+});
+
+test("two jobs with an unknown site get two different placeholder sites", async () => {
+  const { service, fergusFake } = await setup();
+  await service.create(newJobRequest({ site: { unknown: true } }), {});
+  await service.create(newJobRequest({ email: { ...sampleEmail, internetMessageId: "<other@x>" }, site: { unknown: true } }), {});
+  const refs = fergusFake.calls.filter((c) => c.method === "POST" && c.path === "/sites").map((c) => c.body.siteAddress.address1);
+  assert.equal(refs.length, 2);
+  assert.notEqual(refs[0], refs[1]);
+});
+
+test("if Fergus won't rename the placeholder site, the job still goes ahead", async () => {
+  const { service, fergusFake } = await setup({
+    fergusData: { failures: { "PUT /sites/1001": [{ status: 404, body: { message: "Not found" } }] } },
+  });
+  const result = await service.create(newJobRequest({ site: { unknown: true } }), {});
+  assert.equal(result.status, "created");
+  assert.match(result.job.siteAddress, /^Unknown \(ref /);
+  assert.match(result.job.siteRenameError, /renaming the placeholder site/);
+  assert.equal(fergusFake.calls.filter((c) => c.path === "/notes").length, 1);
 });
 
 test("'site unknown' with no contact still gives Fergus a contact name", async () => {
